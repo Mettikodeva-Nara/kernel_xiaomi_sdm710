@@ -343,8 +343,12 @@ include scripts/Kbuild.include
 # Make variables (CC, etc...)
 AS		= $(CROSS_COMPILE)as
 LD		= $(CROSS_COMPILE)ld
+<<<<<<< HEAD
 REAL_CC		= $(CROSS_COMPILE)gcc
 LDGOLD		= $(CROSS_COMPILE)ld.gold
+=======
+CC		= $(CROSS_COMPILE)gcc
+>>>>>>> d1e44504893d... Revert "scripts: gcc-wrapper: Use wrapper to check compiler warnings"
 CPP		= $(CC) -E
 AR		= $(CROSS_COMPILE)ar
 NM		= $(CROSS_COMPILE)nm
@@ -359,10 +363,13 @@ PERL		= perl
 PYTHON		= python
 CHECK		= sparse
 
+<<<<<<< HEAD
 # Use the wrapper for the compiler.  This wrapper scans for new
 # warnings and causes the build to stop upon encountering them
 CC		= $(PYTHON) $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)
 
+=======
+>>>>>>> d1e44504893d... Revert "scripts: gcc-wrapper: Use wrapper to check compiler warnings"
 CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
 		  -Wbitwise -Wno-return-void $(CF)
 NOSTDINC_FLAGS  =
