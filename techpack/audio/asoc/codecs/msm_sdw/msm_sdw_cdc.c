@@ -1,4 +1,5 @@
-/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2018 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -82,8 +83,8 @@ static const struct msm_sdw_reg_mask_val msm_sdw_spkr_default[] = {
 	{MSM_SDW_COMPANDER8_CTL3, 0x80, 0x80},
 	{MSM_SDW_COMPANDER7_CTL7, 0x01, 0x01},
 	{MSM_SDW_COMPANDER8_CTL7, 0x01, 0x01},
-	{MSM_SDW_BOOST0_BOOST_CTL, 0x7C, 0x58},
-	{MSM_SDW_BOOST1_BOOST_CTL, 0x7C, 0x58},
+	{MSM_SDW_BOOST0_BOOST_CTL, 0x7C, 0x50},
+	{MSM_SDW_BOOST1_BOOST_CTL, 0x7C, 0x50},
 };
 
 static const struct msm_sdw_reg_mask_val msm_sdw_spkr_mode1[] = {
@@ -323,7 +324,8 @@ static int msm_sdw_ahb_write_device(struct msm_sdw_priv *msm_sdw,
 {
 	u32 temp = (u32)(*value) & 0x000000FF;
 
-	if (!msm_sdw->dev_up) {
+	if (!msm_sdw->dev_up ||
+	    !q6core_is_adsp_ready()) {
 		dev_err_ratelimited(msm_sdw->dev, "%s: q6 not ready\n",
 				    __func__);
 		return 0;
@@ -338,7 +340,8 @@ static int msm_sdw_ahb_read_device(struct msm_sdw_priv *msm_sdw,
 {
 	u32 temp;
 
-	if (!msm_sdw->dev_up) {
+	if (!msm_sdw->dev_up ||
+	    !q6core_is_adsp_ready()) {
 		dev_err_ratelimited(msm_sdw->dev, "%s: q6 not ready\n",
 				    __func__);
 		return 0;
@@ -1251,13 +1254,7 @@ static int msm_sdw_swrm_write(void *handle, int reg, int val)
 
 static int msm_sdw_swrm_clock(void *handle, bool enable)
 {
-	struct msm_sdw_priv *msm_sdw;
-
-	if (!handle) {
-		pr_err("%s: NULL handle\n", __func__);
-		return -EINVAL;
-	}
-	msm_sdw = (struct msm_sdw_priv *)handle;
+	struct msm_sdw_priv *msm_sdw = (struct msm_sdw_priv *) handle;
 
 	mutex_lock(&msm_sdw->sdw_clk_lock);
 
@@ -1705,8 +1702,8 @@ static const struct msm_sdw_reg_mask_val msm_sdw_reg_init[] = {
 	{MSM_SDW_BOOST1_BOOST_CFG1, 0x3F, 0x12},
 	{MSM_SDW_BOOST1_BOOST_CFG2, 0x1C, 0x08},
 	{MSM_SDW_COMPANDER8_CTL7, 0x1E, 0x18},
-	{MSM_SDW_BOOST0_BOOST_CTL, 0x7C, 0x58},
-	{MSM_SDW_BOOST1_BOOST_CTL, 0x7C, 0x58},
+	{MSM_SDW_BOOST0_BOOST_CTL, 0x70, 0x50},
+	{MSM_SDW_BOOST1_BOOST_CTL, 0x70, 0x50},
 	{MSM_SDW_RX7_RX_PATH_CFG1, 0x08, 0x08},
 	{MSM_SDW_RX8_RX_PATH_CFG1, 0x08, 0x08},
 	{MSM_SDW_TOP_TOP_CFG1, 0x02, 0x02},
@@ -1758,8 +1755,8 @@ static int msm_sdw_notifier_service_cb(struct notifier_block *nb,
 		}
 		mutex_lock(&msm_sdw->cdc_int_mclk1_mutex);
 		msm_sdw->int_mclk1_enabled = false;
-		msm_sdw->dev_up = false;
 		mutex_unlock(&msm_sdw->cdc_int_mclk1_mutex);
+		msm_sdw->dev_up = false;
 		snd_soc_card_change_online_state(
 			msm_sdw->codec->component.card, 0);
 		for (i = 0; i < msm_sdw->nr; i++)
@@ -1790,9 +1787,7 @@ static int msm_sdw_notifier_service_cb(struct notifier_block *nb,
 		}
 powerup:
 		if (adsp_ready) {
-			mutex_lock(&msm_sdw->cdc_int_mclk1_mutex);
 			msm_sdw->dev_up = true;
-			mutex_unlock(&msm_sdw->cdc_int_mclk1_mutex);
 			msm_sdw_init_reg(msm_sdw->codec);
 			regcache_mark_dirty(msm_sdw->regmap);
 			regcache_sync(msm_sdw->regmap);
@@ -1948,7 +1943,6 @@ static void msm_sdw_add_child_devices(struct work_struct *work)
 			msm_sdw->nr = ctrl_num;
 			msm_sdw->sdw_ctrl_data = sdw_ctrl_data;
 		}
-		msm_sdw->pdev_child_devices[msm_sdw->child_count++] = pdev;
 	}
 
 	return;
@@ -1967,7 +1961,7 @@ static int msm_sdw_probe(struct platform_device *pdev)
 	adsp_state = apr_get_subsys_state();
 	if (adsp_state != APR_SUBSYS_LOADED ||
 		!q6core_is_adsp_ready()) {
-		dev_err(&pdev->dev, "Adsp is not loaded yet %d\n",
+			dev_err(&pdev->dev, "Adsp is not loaded yet %d\n",
 				adsp_state);
 		return -EPROBE_DEFER;
 	}
@@ -2066,13 +2060,8 @@ err_sdw_cdc:
 static int msm_sdw_remove(struct platform_device *pdev)
 {
 	struct msm_sdw_priv *msm_sdw;
-	int count;
 
 	msm_sdw = dev_get_drvdata(&pdev->dev);
-
-	for (count = 0; count < msm_sdw->child_count &&
-				count < MSM_SDW_CHILD_DEVICES_MAX; count++)
-		platform_device_unregister(msm_sdw->pdev_child_devices[count]);
 
 	mutex_destroy(&msm_sdw->io_lock);
 	mutex_destroy(&msm_sdw->sdw_read_lock);
@@ -2080,7 +2069,6 @@ static int msm_sdw_remove(struct platform_device *pdev)
 	mutex_destroy(&msm_sdw->sdw_clk_lock);
 	mutex_destroy(&msm_sdw->codec_mutex);
 	mutex_destroy(&msm_sdw->cdc_int_mclk1_mutex);
-
 	devm_kfree(&pdev->dev, msm_sdw);
 	snd_soc_unregister_codec(&pdev->dev);
 	return 0;

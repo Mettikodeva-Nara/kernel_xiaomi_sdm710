@@ -1,4 +1,5 @@
-/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2018 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -810,15 +811,32 @@ void wcd_mbhc_find_plug_and_report(struct wcd_mbhc *mbhc,
 		 * Nothing was reported previously
 		 * report a headphone or unsupported
 		 */
-		if (mbhc->current_plug == MBHC_PLUG_TYPE_HEADSET)
-			wcd_mbhc_report_plug(mbhc, 0, SND_JACK_HEADSET);
 		wcd_mbhc_report_plug(mbhc, 1, SND_JACK_HEADPHONE);
 	} else if (plug_type == MBHC_PLUG_TYPE_GND_MIC_SWAP) {
 		if (mbhc->current_plug == MBHC_PLUG_TYPE_HEADPHONE)
 			wcd_mbhc_report_plug(mbhc, 0, SND_JACK_HEADPHONE);
 		if (mbhc->current_plug == MBHC_PLUG_TYPE_HEADSET)
 			wcd_mbhc_report_plug(mbhc, 0, SND_JACK_HEADSET);
-		wcd_mbhc_report_plug(mbhc, 1, SND_JACK_UNSUPPORTED);
+		/*
+		 * calculate impedance detection
+		 * If Zl and Zr > 20k then it is special accessory
+		 * otherwise unsupported cable.
+		 */
+		/*Add for selfie stick not work  tangshouxing 9/6*/
+		if (mbhc->impedance_detect) {
+			mbhc->mbhc_cb->compute_impedance(mbhc, &mbhc->zl, &mbhc->zr);
+			if ((mbhc->zl > 20000) && (mbhc->zr > 20000)) {
+				pr_debug("%s: special accessory \n", __func__);
+				/* Toggle switch back */
+				if (mbhc->mbhc_cfg->swap_gnd_mic) {
+					pr_debug("%s: US_EU gpio present,flip switch again\n", __func__);
+				}
+				/* enable CS/MICBIAS for headset button detection to work */
+				wcd_enable_mbhc_supply(mbhc, MBHC_PLUG_TYPE_HEADSET);
+				wcd_mbhc_report_plug(mbhc, 1, SND_JACK_HEADSET);
+			} else
+				wcd_mbhc_report_plug(mbhc, 1, SND_JACK_UNSUPPORTED);
+		}
 	} else if (plug_type == MBHC_PLUG_TYPE_HEADSET) {
 		if (mbhc->mbhc_cfg->enable_anc_mic_detect &&
 		    mbhc->mbhc_fn->wcd_mbhc_detect_anc_plug_type)
@@ -827,8 +845,7 @@ void wcd_mbhc_find_plug_and_report(struct wcd_mbhc *mbhc,
 		jack_type = SND_JACK_HEADSET;
 		if (anc_mic_found)
 			jack_type = SND_JACK_ANC_HEADPHONE;
-			if (mbhc->current_plug == MBHC_PLUG_TYPE_HEADPHONE)
-				wcd_mbhc_report_plug(mbhc, 0, SND_JACK_HEADPHONE);
+
 		/*
 		 * If Headphone was reported previously, this will
 		 * only report the mic line
@@ -877,12 +894,6 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 	dev_dbg(codec->dev, "%s: enter\n", __func__);
 	WCD_MBHC_RSC_LOCK(mbhc);
 	mbhc->in_swch_irq_handler = true;
-
-	/*QCOM FSM can not close corretly,when make a call.
-	  Disable FSM when the mbhc irq is detected */
-	/* Disable HW FSM */
-	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_FSM_EN, 0);
-	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_ISRC_CTL, 0);
 
 	/* cancel pending button press */
 	if (wcd_cancel_btn_work(mbhc))
@@ -968,8 +979,6 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 			jack_type = SND_JACK_HEADSET;
 			break;
 		case MBHC_PLUG_TYPE_HIGH_HPH:
-			if (mbhc->mbhc_detection_logic == WCD_DETECTION_ADC)
-			    WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_ELECT_ISRC_EN, 0);
 			mbhc->is_extn_cable = false;
 			jack_type = SND_JACK_LINEOUT;
 			break;
@@ -1107,29 +1116,9 @@ static irqreturn_t wcd_mbhc_btn_press_handler(int irq, void *data)
 	struct wcd_mbhc *mbhc = data;
 	int mask;
 	unsigned long msec_val;
-	int i = 0;
 
 	pr_debug("%s: enter\n", __func__);
 	complete(&mbhc->btn_press_compl);
-	if (mbhc->zl > 50000 && mbhc->zr > 50000 &&
-		(mbhc->buttons_pressed & (SND_JACK_BTN_1 | SND_JACK_BTN_2))) {
-		pr_debug("%s: mbhc->buttons_pressed  is 0x%x, The buttons_pressed maybe triggered by mistake.\n",
-					__func__, mbhc->buttons_pressed);
-		return IRQ_HANDLED;
-	}
-
-	for (i = 0; i < 10; i++) {
-		if (mbhc->zl > 50000 && mbhc->zr > 50000 &&
-			 !mbhc->buttons_pressed) {
-			 udelay(300);
-			 pr_debug("%s: wait for debounce \n", __func__);
-			 continue;
-		} else {
-			 pr_debug("%s: by normal \n", __func__);
-			 break;
-		}
-	}
-
 	WCD_MBHC_RSC_LOCK(mbhc);
 	wcd_cancel_btn_work(mbhc);
 	if (wcd_swch_level_remove(mbhc)) {
@@ -1177,20 +1166,8 @@ static irqreturn_t wcd_mbhc_release_handler(int irq, void *data)
 {
 	struct wcd_mbhc *mbhc = data;
 	int ret;
-	int i = 0;
 
 	pr_debug("%s: enter\n", __func__);
-	for (i = 0; i < 10; i++) {
-		if (mbhc->zl > 50000 && mbhc->zr > 50000 &&
-			mbhc->buttons_pressed) {
-			udelay(300);
-			pr_debug("%s: wait for debounce.\n", __func__);
-			continue;
-		} else {
-			pr_debug("%s: by normal.\n", __func__);
-			break;
-		}
-	}
 	WCD_MBHC_RSC_LOCK(mbhc);
 	if (wcd_swch_level_remove(mbhc)) {
 		pr_debug("%s: Switch level is low ", __func__);
@@ -1373,8 +1350,8 @@ static int wcd_mbhc_initialise(struct wcd_mbhc *mbhc)
 		/* Insertion debounce set to 48ms */
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_INSREM_DBNC, 4);
 	} else {
-		/* Insertion debounce set to 256ms */
-		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_INSREM_DBNC, 9);
+		/* Insertion debounce set to 96ms */
+		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_INSREM_DBNC, 6);
 	}
 
 	/* Button Debounce set to 16ms */
@@ -1552,9 +1529,6 @@ static int wcd_mbhc_usb_c_analog_setup_gpios(struct wcd_mbhc *mbhc,
 	memset(&pval, 0, sizeof(pval));
 
 	if (active) {
-		if (mbhc->mbhc_cb->set_micbias2_value)
-			mbhc->mbhc_cb->set_micbias2_value(mbhc->codec, 1800000);
-
 		pval.intval = POWER_SUPPLY_TYPEC_PR_SOURCE;
 		if (power_supply_set_property(mbhc->usb_psy,
 				POWER_SUPPLY_PROP_TYPEC_POWER_ROLE, &pval))
@@ -1593,9 +1567,6 @@ static int wcd_mbhc_usb_c_analog_setup_gpios(struct wcd_mbhc *mbhc,
 			mbhc->usbc_force_pr_mode = false;
 		}
 
-		if (mbhc->mbhc_cb->set_micbias2_value)
-			mbhc->mbhc_cb->set_micbias2_value(mbhc->codec, 0);
-
 		mbhc->usbc_mode = POWER_SUPPLY_TYPEC_NONE;
 		if (mbhc->mbhc_cfg->swap_gnd_mic)
 			mbhc->mbhc_cfg->swap_gnd_mic(mbhc->codec, false);
@@ -1613,46 +1584,6 @@ static void wcd_mbhc_usbc_analog_work_fn(struct work_struct *work)
 	wcd_mbhc_usb_c_analog_setup_gpios(mbhc,
 			mbhc->usbc_mode != POWER_SUPPLY_TYPEC_NONE);
 }
-
-static int wcd_mbhc_non_usb_c_event_changed(struct notifier_block *nb,
-					unsigned long evt, void *ptr)
-{
-	int ret;
-	union power_supply_propval mode;
-	struct wcd_mbhc *mbhc = container_of(nb, struct wcd_mbhc, psy_nb);
-	struct snd_soc_codec *codec = mbhc->codec;
-
-	ret = power_supply_get_property(ptr,
-			POWER_SUPPLY_PROP_TYPEC_MODE, &mode);
-
-	switch (mode.intval) {
-	case POWER_SUPPLY_TYPEC_SINK_AUDIO_ADAPTER:
-		dev_err(codec->dev, "%s: report Type-C usb headphone\n", __func__);
-		if (mbhc->usbc_mode == mode.intval)
-			break; /* filter notifications received before */
-		wcd_mbhc_jack_report(mbhc, &mbhc->usb_3_5_jack,
-					(SND_JACK_HEADSET | SND_JACK_UNSUPPORTED),
-					WCD_MBHC_JACK_USB_3_5_MASK);
-		mbhc->usbc_mode = mode.intval;
-		break;
-	case POWER_SUPPLY_TYPEC_NONE:
-		if (mbhc->usbc_mode == mode.intval)
-			break; /* filter notifications received before */
-		if (mbhc->usbc_mode == POWER_SUPPLY_TYPEC_SINK_AUDIO_ADAPTER) {
-			mbhc->usbc_mode = mode.intval - 1;
-			break;
-		}
-		wcd_mbhc_jack_report(mbhc, &mbhc->usb_3_5_jack, 0,
-					WCD_MBHC_JACK_USB_3_5_MASK);
-		mbhc->usbc_mode = mode.intval;
-		break;
-	default:
-		break;
-	}
-
-	return ret;
-}
-
 
 /* this callback function is used to process PMI notification */
 static int wcd_mbhc_usb_c_event_changed(struct notifier_block *nb,
@@ -1849,15 +1780,6 @@ int wcd_mbhc_start(struct wcd_mbhc *mbhc, struct wcd_mbhc_config *mbhc_cfg)
 		rc = wcd_mbhc_usb_c_analog_init(mbhc);
 		if (rc) {
 			rc = EPROBE_DEFER;
-			goto err;
-		}
-	} else {
-		mbhc->psy_nb.notifier_call = wcd_mbhc_non_usb_c_event_changed;
-		mbhc->psy_nb.priority = 0;
-		rc = power_supply_reg_notifier(&mbhc->psy_nb);
-		if (rc) {
-			dev_err(codec->dev, "%s: power supply registration failed\n",
-					__func__);
 			goto err;
 		}
 	}
@@ -2066,14 +1988,6 @@ int wcd_mbhc_init(struct wcd_mbhc *mbhc, struct snd_soc_codec *codec,
 					    &mbhc->button_jack, NULL, 0);
 		if (ret) {
 			pr_err("Failed to create new jack\n");
-			return ret;
-		}
-
-		ret = snd_soc_card_jack_new(codec->component.card,
-					    "USB_3_5 Jack", WCD_MBHC_JACK_USB_3_5_MASK,
-					    &mbhc->usb_3_5_jack, NULL, 0);
-		if (ret) {
-			pr_err("%s: Failed to create new jack USB_3_5 Jack\n", __func__);
 			return ret;
 		}
 

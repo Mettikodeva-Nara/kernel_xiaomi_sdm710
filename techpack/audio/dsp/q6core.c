@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -18,8 +18,6 @@
 #include <linux/mutex.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
-#include <linux/sysfs.h>
-#include <linux/kobject.h>
 #include <dsp/q6core.h>
 #include <dsp/audio_cal_utils.h>
 #include <dsp/apr_audio-v2.h>
@@ -84,107 +82,7 @@ struct generic_get_data_ {
 };
 static struct generic_get_data_ *generic_get_data;
 
-static DEFINE_MUTEX(kset_lock);
-static struct kset *audio_uevent_kset;
-
-static int q6core_init_uevent_kset(void)
-{
-	int ret = 0;
-
-	mutex_lock(&kset_lock);
-	if (audio_uevent_kset)
-		goto done;
-
-	/* Create a kset under /sys/kernel/ */
-	audio_uevent_kset = kset_create_and_add("q6audio", NULL, kernel_kobj);
-	if (!audio_uevent_kset) {
-		pr_err("%s: error creating uevent kernel set", __func__);
-		ret = -EINVAL;
-	}
-done:
-	mutex_unlock(&kset_lock);
-	return ret;
-}
-
-static void q6core_destroy_uevent_kset(void)
-{
-	if (audio_uevent_kset) {
-		kset_unregister(audio_uevent_kset);
-		audio_uevent_kset = NULL;
-	}
-}
-
-/**
- * q6core_init_uevent_data - initialize kernel object required to send uevents.
- *
- * @uevent_data: uevent data (dynamically allocated memory).
- * @name: name of the kernel object.
- *
- * Returns 0 on success or error otherwise.
- */
-int q6core_init_uevent_data(struct audio_uevent_data *uevent_data, char *name)
-{
-	int ret = -EINVAL;
-
-	if (!uevent_data || !name)
-		return ret;
-
-	ret = q6core_init_uevent_kset();
-	if (ret)
-		return ret;
-
-	/* Set kset for kobject before initializing the kobject */
-	uevent_data->kobj.kset = audio_uevent_kset;
-
-	/* Initialize kobject and add it to kernel */
-	ret = kobject_init_and_add(&uevent_data->kobj, &uevent_data->ktype,
-					NULL, "%s", name);
-	if (ret) {
-		pr_err("%s: error initializing uevent kernel object: %d",
-			__func__, ret);
-		kobject_put(&uevent_data->kobj);
-		return ret;
-	}
-
-	/* Send kobject add event to the system */
-	kobject_uevent(&uevent_data->kobj, KOBJ_ADD);
-
-	return ret;
-}
-EXPORT_SYMBOL(q6core_init_uevent_data);
-
-/**
- * q6core_destroy_uevent_data - destroy kernel object.
- *
- * @uevent_data: uevent data.
- */
-void q6core_destroy_uevent_data(struct audio_uevent_data *uevent_data)
-{
-	if (uevent_data)
-		kobject_put(&uevent_data->kobj);
-}
-EXPORT_SYMBOL(q6core_destroy_uevent_data);
-
-/**
- * q6core_send_uevent - send uevent to userspace.
- *
- * @uevent_data: uevent data.
- * @event: event to send.
- *
- * Returns 0 on success or error otherwise.
- */
-int q6core_send_uevent(struct audio_uevent_data *uevent_data, char *event)
-{
-	char *env[] = { event, NULL };
-
-	if (!event || !uevent_data)
-		return -EINVAL;
-
-	return kobject_uevent_env(&uevent_data->kobj, KOBJ_CHANGE, env);
-}
-EXPORT_SYMBOL(q6core_send_uevent);
-
-static int parse_fwk_version_info(uint32_t *payload, uint16_t payload_size)
+static int parse_fwk_version_info(uint32_t *payload)
 {
 	size_t ver_size;
 	int num_services;
@@ -197,11 +95,6 @@ static int parse_fwk_version_info(uint32_t *payload, uint16_t payload_size)
 	 * Based on this info, we copy the payload into core
 	 * avcs version info structure.
 	 */
-	if (payload_size < 5 * sizeof(uint32_t)) {
-		pr_err("%s: payload has invalid size %d\n",
-			__func__, payload_size);
-		return -EINVAL;
-	}
 	num_services = payload[4];
 	if (num_services > VSS_MAX_AVCS_NUM_SERVICES) {
 		pr_err("%s: num_services: %d greater than max services: %d\n",
@@ -215,12 +108,6 @@ static int parse_fwk_version_info(uint32_t *payload, uint16_t payload_size)
 	 */
 	ver_size = sizeof(struct avcs_get_fwk_version) +
 		   num_services * sizeof(struct avs_svc_api_info);
-
-	if (payload_size < ver_size) {
-		pr_err("%s: payload has invalid size %d, expected size %zu\n",
-			__func__, payload_size, ver_size);
-		return -EINVAL;
-	}
 
 	q6core_lcl.q6core_avcs_ver_info.ver_info =
 		kzalloc(ver_size, GFP_ATOMIC);
@@ -257,12 +144,6 @@ static int32_t aprv2_core_fn_q(struct apr_client_data *data, void *priv)
 		}
 
 		payload1 = data->payload;
-
-		if (data->payload_size < 2 * sizeof(uint32_t)) {
-			pr_err("%s: payload has invalid size %d\n",
-				__func__, data->payload_size);
-			return -EINVAL;
-		}
 
 		switch (payload1[0]) {
 
@@ -324,11 +205,6 @@ static int32_t aprv2_core_fn_q(struct apr_client_data *data, void *priv)
 		break;
 	}
 	case AVCS_CMDRSP_SHARED_MEM_MAP_REGIONS:
-		if (data->payload_size < sizeof(uint32_t)) {
-			pr_err("%s: payload has invalid size %d\n",
-				__func__, data->payload_size);
-			return -EINVAL;
-		}
 		payload1 = data->payload;
 		pr_debug("%s: AVCS_CMDRSP_SHARED_MEM_MAP_REGIONS handle %d\n",
 			__func__, payload1[0]);
@@ -337,11 +213,6 @@ static int32_t aprv2_core_fn_q(struct apr_client_data *data, void *priv)
 		wake_up(&q6core_lcl.bus_bw_req_wait);
 		break;
 	case AVCS_CMDRSP_ADSP_EVENT_GET_STATE:
-		if (data->payload_size < sizeof(uint32_t)) {
-			pr_err("%s: payload has invalid size %d\n",
-				__func__, data->payload_size);
-			return -EINVAL;
-		}
 		payload1 = data->payload;
 		q6core_lcl.param = payload1[0];
 		pr_debug("%s: Received ADSP get state response 0x%x\n",
@@ -352,11 +223,6 @@ static int32_t aprv2_core_fn_q(struct apr_client_data *data, void *priv)
 		wake_up(&q6core_lcl.bus_bw_req_wait);
 		break;
 	case AVCS_CMDRSP_GET_LICENSE_VALIDATION_RESULT:
-		if (data->payload_size < sizeof(uint32_t)) {
-			pr_err("%s: payload has invalid size %d\n",
-				__func__, data->payload_size);
-			return -EINVAL;
-		}
 		payload1 = data->payload;
 		pr_debug("%s: cmd = LICENSE_VALIDATION_RESULT, result = 0x%x\n",
 				__func__, payload1[0]);
@@ -369,7 +235,7 @@ static int32_t aprv2_core_fn_q(struct apr_client_data *data, void *priv)
 		pr_debug("%s: Received AVCS_CMDRSP_GET_FWK_VERSION\n",
 			 __func__);
 		payload1 = data->payload;
-		ret = parse_fwk_version_info(payload1, data->payload_size);
+		ret = parse_fwk_version_info(payload1);
 		if (ret < 0) {
 			q6core_lcl.adsp_status = ret;
 			pr_err("%s: Failed to parse payload:%d\n",
@@ -540,42 +406,6 @@ int q6core_get_service_version(uint32_t service_id,
 }
 EXPORT_SYMBOL(q6core_get_service_version);
 
-static int q6core_get_avcs_fwk_version(void)
-{
-        int ret = 0;
-
-        mutex_lock(&(q6core_lcl.ver_lock));
-        pr_debug("%s: q6core_avcs_ver_info.status(%d)\n", __func__,
-                 q6core_lcl.q6core_avcs_ver_info.status);
-
-        switch (q6core_lcl.q6core_avcs_ver_info.status) {
-        case VER_QUERY_SUPPORTED:
-                pr_debug("%s: AVCS FWK version query already attempted\n",
-                         __func__);
-                break;
-        case VER_QUERY_UNSUPPORTED:
-                ret = -EOPNOTSUPP;
-                break;
-        case VER_QUERY_UNATTEMPTED:
-                pr_debug("%s: Attempting AVCS FWK version query\n", __func__);
-                if (q6core_is_adsp_ready()) {
-                        ret = q6core_send_get_avcs_fwk_ver_cmd();
-                } else {
-                        pr_err("%s: ADSP is not ready to query version\n",
-                               __func__);
-                        ret = -ENODEV;
-                }
-                break;
-        default:
-                pr_err("%s: Invalid version query status %d\n", __func__,
-                       q6core_lcl.q6core_avcs_ver_info.status);
-                ret = -EINVAL;
-                break;
-        }
-        mutex_unlock(&(q6core_lcl.ver_lock));
-        return ret;
-}
-
 size_t q6core_get_fwk_version_size(uint32_t service_id)
 {
 	int ret = 0;
@@ -632,42 +462,6 @@ done:
 	return ret;
 }
 EXPORT_SYMBOL(q6core_get_fwk_version_size);
-
-/**
- * q6core_get_avcs_version_per_service -
- *       to get api version of a particular service
- *
- * @service_id: id of the service
- *
- * Returns valid version on success or error (negative value) on failure
- */
-int q6core_get_avcs_api_version_per_service(uint32_t service_id)
-{
-        struct avcs_fwk_ver_info *cached_ver_info = NULL;
-        int i;
-        uint32_t num_services;
-        int ret = 0;
-
-        if (service_id == AVCS_SERVICE_ID_ALL)
-                return -EINVAL;
-
-        ret = q6core_get_avcs_fwk_version();
-        if (ret < 0) {
-                pr_err("%s: failure in getting AVCS version\n", __func__);
-                return ret;
-        }
-
-        cached_ver_info = q6core_lcl.q6core_avcs_ver_info.ver_info;
-        num_services = cached_ver_info->avcs_fwk_version.num_services;
-
-        for (i = 0; i < num_services; i++) {
-                if (cached_ver_info->services[i].service_id == service_id)
-                        return cached_ver_info->services[i].api_version;
-        }
-        pr_err("%s: No service matching service ID %d\n", __func__, service_id);
-        return -EINVAL;
-}
-EXPORT_SYMBOL(q6core_get_avcs_api_version_per_service);
 
 /**
  * core_set_license -
@@ -1316,7 +1110,6 @@ int __init core_init(void)
 	mutex_init(&q6core_lcl.ver_lock);
 
 	q6core_init_cal_data();
-	q6core_init_uevent_kset();
 
 	return 0;
 }
@@ -1326,7 +1119,6 @@ void core_exit(void)
 	mutex_destroy(&q6core_lcl.cmd_lock);
 	mutex_destroy(&q6core_lcl.ver_lock);
 	q6core_delete_cal_data();
-	q6core_destroy_uevent_kset();
 }
 MODULE_DESCRIPTION("ADSP core driver");
 MODULE_LICENSE("GPL v2");

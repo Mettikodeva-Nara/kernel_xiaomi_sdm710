@@ -1,6 +1,7 @@
 /*
 ** =============================================================================
 ** Copyright (c) 2016  Texas Instruments Inc.
+** Copyright (C) 2018 XiaoMi, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify it under
 ** the terms of the GNU General Public License as published by the Free Software
@@ -349,9 +350,9 @@ static int pa_version_get(struct snd_kcontrol *kcontrol,
 
 		if (pTAS2557->mnPGID == TAS2557_PG_VERSION_1P0)
 			ucontrol->value.integer.value[0] = 1;
-		else if(pTAS2557->mnPGID == TAS2557_PG_VERSION_2P0)
+		else if (pTAS2557->mnPGID == TAS2557_PG_VERSION_2P0)
 			ucontrol->value.integer.value[0] = 2;
-		else if(pTAS2557->mnPGID == TAS2557_PG_VERSION_2P1)
+		else if (pTAS2557->mnPGID == TAS2557_PG_VERSION_2P1)
 			ucontrol->value.integer.value[0] = 3;
 		return 0;
 }

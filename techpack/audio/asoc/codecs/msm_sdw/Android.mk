@@ -4,7 +4,7 @@
 
 AUDIO_CHIPSET := audio
 # Build/Package only in case of supported target
-ifeq ($(call is-board-platform-in-list,sdm710 qcs605),true)
+ifeq ($(call is-board-platform-in-list,msm8953 sdm710 qcs605),true)
 AUDIO_SELECT  := CONFIG_SND_SOC_SDM670=m
 
 LOCAL_PATH := $(call my-dir)
@@ -13,7 +13,7 @@ LOCAL_PATH := $(call my-dir)
 ifneq ($(findstring vendor,$(LOCAL_PATH)),)
 
 ifneq ($(findstring opensource,$(LOCAL_PATH)),)
-	AUDIO_BLD_DIR := $(shell pwd)/vendor/qcom/opensource/audio-kernel
+	AUDIO_BLD_DIR := $(ANDROID_BUILD_TOP)/vendor/qcom/opensource/audio-kernel
 endif # opensource
 
 DLKM_DIR := $(TOP)/device/qcom/common/dlkm

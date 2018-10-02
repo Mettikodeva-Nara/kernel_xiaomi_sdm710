@@ -2456,7 +2456,8 @@ static int __init usf_init(void)
 			break;
 		}
 	}
-	if (!rc) q6usm_init();
+	if (!rc)
+		q6usm_init();
 
 	return rc;
 }
@@ -2464,9 +2465,9 @@ module_init(usf_init);
 
 static void __exit usf_exit(void)
 {
-        uint16_t ind = 0;
+	uint16_t ind = 0;
 
-        for (ind = 0; ind < MAX_DEVS_NUMBER; ++ind)
+	for (ind = 0; ind < MAX_DEVS_NUMBER; ++ind)
 		misc_deregister(&usf_misc[ind]);
 }
 module_exit(usf_exit);

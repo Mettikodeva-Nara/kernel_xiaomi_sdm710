@@ -1,6 +1,7 @@
 /*
 ** =============================================================================
 ** Copyright (c) 2016  Texas Instruments Inc.
+** Copyright (C) 2018 XiaoMi, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify it under
 ** the terms of the GNU General Public License as published by the Free Software
@@ -44,10 +45,6 @@
 #include <linux/uaccess.h>
 #include <linux/crc8.h>
 
-#include <linux/fs.h>
-#include <asm/segment.h>
-#include <linux/buffer_head.h>
-
 #include "tas2557.h"
 #include "tas2557-core.h"
 #include "../spk-id.h"
@@ -56,9 +53,8 @@
 #define	PPC_DRIVER_MTPLLSRC			0x00000400
 #define	PPC_DRIVER_CFGDEV_NONCRC	0x00000101
 
-#define TAS2557_CAL_NAME    "/persist/audio/tas2557_cal.bin"
-#define TAS2557_CAL_NAME_NEW    "/persist/audio/tas2557_cal_new.bin"
-#define RESTART_MAX 3
+#define TAS2557_CAL_NAME    "/data/tas2557_cal.bin"
+
 
 static int tas2557_load_calibration(struct tas2557_priv *pTAS2557,
 	char *pFileName);
@@ -306,15 +302,6 @@ static void failsafe(struct tas2557_priv *pTAS2557)
 	pTAS2557->mnErrCode |= ERROR_FAILSAFE;
 	if (hrtimer_active(&pTAS2557->mtimer))
 		hrtimer_cancel(&pTAS2557->mtimer);
-
-	if(pTAS2557->mnRestart < RESTART_MAX)
-	{
-		pTAS2557->mnRestart ++;
-		msleep(100);
-		dev_err(pTAS2557->dev, "I2C COMM error, restart SmartAmp.\n");
-		schedule_delayed_work(&pTAS2557->irq_work, msecs_to_jiffies(100));
-		return;
-	}
 	pTAS2557->enableIRQ(pTAS2557, false);
 	tas2557_dev_load_data(pTAS2557, p_tas2557_shutdown_data);
 	pTAS2557->mbPowerUp = false;
@@ -462,17 +449,17 @@ int tas2557_permanent_mute(struct tas2557_priv *pTAS2557, bool bmute)
 	int nResult = 0;
 
 	nResult = tas2557_enable(pTAS2557, !bmute);
-	if(nResult) {
-		dev_dbg(pTAS2557->dev, "set mute = %d faild\n",bmute );
+	if (nResult) {
+		dev_dbg(pTAS2557->dev, "set mute = %d faild\n", bmute);
 		goto end;
 	}
 
 	pTAS2557->mbMute = bmute;
 
-	if(bmute) {  //make sure codec is permanent mute
+	if (bmute) {
 		p_tas2557_unmute_data[1] = 0x03;
 		p_tas2557_unmute_data[3] = 0x01;
-	}else {
+	} else {
 		p_tas2557_unmute_data[1] = 0x00;
 		p_tas2557_unmute_data[3] = 0x00;
 	}
@@ -501,20 +488,12 @@ int tas2557_enable(struct tas2557_priv *pTAS2557, bool bEnable)
 	if ((nValue&0xff) != TAS2557_SAFE_GUARD_PATTERN) {
 		dev_err(pTAS2557->dev, "ERROR safe guard failure!\n");
 		nResult = -EPIPE;
-		pTAS2557->mnErrCode = ERROR_SAFE_GUARD;
-		pTAS2557->mbPowerUp = true;
 		goto end;
 	}
 
 	pProgram = &(pTAS2557->mpFirmware->mpPrograms[pTAS2557->mnCurrentProgram]);
 	if (bEnable) {
 		if (!pTAS2557->mbPowerUp) {
-			if (!pTAS2557->mbCalibrationLoaded) {
-				if (tas2557_set_calibration(pTAS2557, 0xFF) < 0)
-					dev_err(pTAS2557->dev, "calibration data load fail!\n");
-				else
-					pTAS2557->mbCalibrationLoaded = true;
-			}
 			if (pTAS2557->mbLoadConfigurationPrePowerUp) {
 				dev_dbg(pTAS2557->dev, "load coefficient before power\n");
 				pTAS2557->mbLoadConfigurationPrePowerUp = false;
@@ -542,18 +521,6 @@ int tas2557_enable(struct tas2557_priv *pTAS2557, bool bEnable)
 			if (nResult < 0)
 				goto end;
 
-			pTAS2557->mbPowerUp = true;
-			pTAS2557->mnRestart = 0;
-
-			tas2557_get_die_temperature(pTAS2557, &nValue);
-			if(nValue == 0x80000000)
-			{
-				dev_err(pTAS2557->dev, "%s, thermal sensor is wrong, mute output\n", __func__);
-				nResult = tas2557_dev_load_data(pTAS2557, p_tas2557_shutdown_data);
-				pTAS2557->mbPowerUp = false;
-				goto end;
-			}
-
 			if (pProgram->mnAppMode == TAS2557_APP_TUNINGMODE) {
 				/* turn on IRQ */
 				pTAS2557->enableIRQ(pTAS2557, true);
@@ -563,6 +530,7 @@ int tas2557_enable(struct tas2557_priv *pTAS2557, bool bEnable)
 						ns_to_ktime((u64)LOW_TEMPERATURE_CHECK_PERIOD * NSEC_PER_MSEC), HRTIMER_MODE_REL);
 				}
 			}
+			pTAS2557->mbPowerUp = true;
 		}
 	} else {
 		if (pTAS2557->mbPowerUp) {
@@ -579,7 +547,6 @@ int tas2557_enable(struct tas2557_priv *pTAS2557, bool bEnable)
 				goto end;
 
 			pTAS2557->mbPowerUp = false;
-			pTAS2557->mnRestart = 0;
 		}
 	}
 
@@ -587,7 +554,7 @@ int tas2557_enable(struct tas2557_priv *pTAS2557, bool bEnable)
 
 end:
 	if (nResult < 0) {
-		if (pTAS2557->mnErrCode & (ERROR_DEVA_I2C_COMM | ERROR_PRAM_CRCCHK | ERROR_YRAM_CRCCHK | ERROR_SAFE_GUARD))
+		if (pTAS2557->mnErrCode & (ERROR_DEVA_I2C_COMM | ERROR_PRAM_CRCCHK | ERROR_YRAM_CRCCHK))
 			failsafe(pTAS2557);
 	}
 
@@ -1594,54 +1561,46 @@ void tas2557_clear_firmware(struct TFirmware *pFirmware)
 static int tas2557_load_calibration(struct tas2557_priv *pTAS2557,	char *pFileName)
 {
 	int nResult = 0;
-
-	//int nFile;
-	struct file *nFile=NULL;
-	mm_segment_t fs;
-	unsigned char pBuffer[1000];
-	int nSize = 0;
-	loff_t pos = 0;
-
-	dev_dbg(pTAS2557->dev, "%s:\n", __func__);
-
-	fs = get_fs();
-	set_fs(KERNEL_DS);
-	nFile = filp_open(pFileName, O_RDONLY, 0);
-
-	dev_info(pTAS2557->dev, "TAS2557 calibration file = %s\n",
-		pFileName);
-
-	if (IS_ERR(nFile)) {
-		if (PTR_ERR(nFile) == -ENOENT) {
-			dev_err(pTAS2557->dev, "TAS2557 calibration file %s is not exit\n",
-				pFileName);
-		} else {
-			dev_err(pTAS2557->dev, "TAS2557 cannot open calibration file: %s errno:%d\n",
-				pFileName, (int)PTR_ERR(nFile));
-		}
-		nResult = -EINVAL;
-	} else {
-		pos = nFile->f_pos;
-		nSize = vfs_read(nFile, pBuffer, 1000, &pos);
-		filp_close(nFile,NULL);
-	}
-
-	set_fs(fs);
-
-	if (!nSize)
-		goto end;
-
-	tas2557_clear_firmware(pTAS2557->mpCalFirmware);
-	dev_info(pTAS2557->dev, "TAS2557 calibration file size = %d\n", nSize);
-	nResult = fw_parse(pTAS2557, pTAS2557->mpCalFirmware, pBuffer, nSize);
-
-	if (nResult)
-		dev_err(pTAS2557->dev, "TAS2557 calibration file is corrupt\n");
-	else
-		dev_info(pTAS2557->dev, "TAS2557 calibration: %d calibrations\n",
-			pTAS2557->mpCalFirmware->mnCalibrations);
-
-end:
+/*
+*	int nFile;
+*	mm_segment_t fs;
+*	unsigned char pBuffer[1000];
+*	int nSize = 0;
+*
+*	dev_dbg(pTAS2557->dev, "%s:\n", __func__);
+*
+*	fs = get_fs();
+*	set_fs(KERNEL_DS);
+*	nFile = sys_open(pFileName, O_RDONLY, 0);
+*
+*	dev_info(pTAS2557->dev, "TAS2557 calibration file = %s, handle = %d\n",
+*		pFileName, nFile);
+*
+*	if (nFile >= 0) {
+*		nSize = sys_read(nFile, pBuffer, 1000);
+*		sys_close(nFile);
+*	} else {
+*		dev_err(pTAS2557->dev, "TAS2557 cannot open calibration file: %s\n",
+*			pFileName);
+*	}
+*
+*	set_fs(fs);
+*
+*	if (!nSize)
+*		goto end;
+*
+*	tas2557_clear_firmware(pTAS2557->mpCalFirmware);
+*	dev_info(pTAS2557->dev, "TAS2557 calibration file size = %d\n", nSize);
+*	nResult = fw_parse(pTAS2557, pTAS2557->mpCalFirmware, pBuffer, nSize);
+*
+*	if (nResult)
+*		dev_err(pTAS2557->dev, "TAS2557 calibration file is corrupt\n");
+*	else
+*		dev_info(pTAS2557->dev, "TAS2557 calibration: %d calibrations\n",
+*			pTAS2557->mpCalFirmware->mnCalibrations);
+*
+*end:
+**/
 	return nResult;
 }
 
@@ -1800,7 +1759,7 @@ void tas2557_fw_ready(const struct firmware *pFW, void *pContext)
 	pTAS2557->mnCurrentSampleRate = nSampleRate;
 	nResult = tas2557_set_program(pTAS2557, nProgram, -1);
 
-end:
+end: ;
 
 #ifdef CONFIG_TAS2557_CODEC
 	mutex_unlock(&pTAS2557->codec_lock);
@@ -1963,29 +1922,14 @@ int tas2557_set_calibration(struct tas2557_priv *pTAS2557, int nCalibration)
 		nResult = 0;
 		goto end;
 	}
+
 	if (nCalibration == 0x00FF) {
-		nResult = tas2557_load_calibration(pTAS2557, TAS2557_CAL_NAME_NEW);
-
+		nResult = tas2557_load_calibration(pTAS2557, TAS2557_CAL_NAME);
 		if (nResult < 0) {
-			dev_err(pTAS2557->dev, "new calibration file is not exit %s fail %d\n",
-				TAS2557_CAL_NAME_NEW, nResult);
-
-			nResult = tas2557_load_calibration(pTAS2557, TAS2557_CAL_NAME);
-
-			if (nResult < 0) {
-				dev_err(pTAS2557->dev, "load calibration file %s fail %d\n",
-					TAS2557_CAL_NAME, nResult);
-				goto end;
-			} else {
-				dev_err(pTAS2557->dev, "load calibration file %s successfully\n",
-					TAS2557_CAL_NAME);
-			}
-
-		} else {
-			dev_err(pTAS2557->dev, "new calibration file %s is loaded successfully\n",
-				TAS2557_CAL_NAME_NEW);
+			dev_info(pTAS2557->dev, "load new calibration file %s fail %d\n",
+				TAS2557_CAL_NAME, nResult);
+			goto end;
 		}
-
 		nCalibration = 0;
 	}
 

@@ -1,6 +1,7 @@
 /*
 ** =============================================================================
 ** Copyright (c) 2016  Texas Instruments Inc.
+** Copyright (C) 2018 XiaoMi, Inc.
 **
 ** This program is free software; you can redistribute it and/or modify it under
 ** the terms of the GNU General Public License as published by the Free Software
@@ -272,7 +273,7 @@ static int tas2557_dev_bulk_write(
 				nLength);
 	}
 
-	nResult = tas2557_change_book_page( pTAS2557,
+	nResult = tas2557_change_book_page(pTAS2557,
 				TAS2557_BOOK_ID(nRegister),
 				TAS2557_PAGE_ID(nRegister));
 	if (nResult >= 0) {
@@ -313,7 +314,7 @@ static int tas2557_dev_update_bits(
 				nMask, nValue);
 	}
 
-	nResult = tas2557_change_book_page( pTAS2557,
+	nResult = tas2557_change_book_page(pTAS2557,
 				TAS2557_BOOK_ID(nRegister),
 				TAS2557_PAGE_ID(nRegister));
 	if (nResult >= 0) {
@@ -355,9 +356,11 @@ void tas2557_enableIRQ(struct tas2557_priv *pTAS2557, bool enable)
 			}
 		}
 	} else {
-		if (gpio_is_valid(pTAS2557->mnGpioINT))
-			disable_irq_nosync(pTAS2557->mnIRQ);
-		pTAS2557->mbIRQEnable = false;
+		if (pTAS2557->mbIRQEnable) {
+			if (gpio_is_valid(pTAS2557->mnGpioINT))
+				disable_irq_nosync(pTAS2557->mnIRQ);
+			pTAS2557->mbIRQEnable = false;
+		}
 	}
 }
 
@@ -393,9 +396,6 @@ static void irq_work_routine(struct work_struct *work)
 #ifdef CONFIG_TAS2557_MISC
 	mutex_lock(&pTAS2557->file_lock);
 #endif
-
-	if(pTAS2557->mnErrCode & ERROR_FAILSAFE)
-		goto program;
 
 	if (pTAS2557->mbRuntimeSuspend) {
 		dev_info(pTAS2557->dev, "%s, Runtime Suspended\n", __func__);
@@ -586,8 +586,8 @@ static void timer_work_routine(struct work_struct *work)
 		if (!(pTAS2557->mnDieTvReadCounter % LOW_TEMPERATURE_COUNTER)) {
 			nAvg /= LOW_TEMPERATURE_COUNTER;
 			dev_dbg(pTAS2557->dev, "check : avg=%d\n", nAvg);
-			if (nAvg < -6) {
-				/* if Die temperature is below -6 degree C */
+			if ((nAvg & 0x80000000) != 0) {
+				/* if Die temperature is below ZERO */
 				if (pTAS2557->mnDevCurrentGain != LOW_TEMPERATURE_GAIN) {
 					nResult = tas2557_set_DAC_gain(pTAS2557, LOW_TEMPERATURE_GAIN);
 					if (nResult < 0)
@@ -754,7 +754,6 @@ static int tas2557_i2c_probe(struct i2c_client *pClient,
 	pTAS2557->hw_reset = tas2557_hw_reset;
 	pTAS2557->runtime_suspend = tas2557_runtime_suspend;
 	pTAS2557->runtime_resume = tas2557_runtime_resume;
-	pTAS2557->mnRestart = 0;
 
 	mutex_init(&pTAS2557->dev_lock);
 
@@ -769,10 +768,10 @@ static int tas2557_i2c_probe(struct i2c_client *pClient,
 	{
 
 		int i;
-		for(i =0; i<0x10; i++){
+		for (i = 0; i < 0x10; i++) {
 			tas2557_dev_read(pTAS2557, i, &nValue);
-			dev_err(pTAS2557->dev, "address:%x  value: %x\n",i, nValue);
-			}
+			dev_err(pTAS2557->dev, "address:%x  value: %x\n", i, nValue);
+		}
 	}
 	tas2557_dev_read(pTAS2557, TAS2557_REV_PGID_REG, &nValue);
 	pTAS2557->mnPGID = nValue;

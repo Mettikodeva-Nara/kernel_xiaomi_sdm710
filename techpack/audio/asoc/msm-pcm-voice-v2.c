@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -519,22 +519,6 @@ done:
 	return ret;
 }
 
-static int msm_voice_mbd_get(struct snd_kcontrol *kcontrol,
-			      struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = voc_get_mbd_enable();
-	return 0;
-}
-
-static int msm_voice_mbd_put(struct snd_kcontrol *kcontrol,
-			      struct snd_ctl_elem_value *ucontrol)
-{
-	bool enable = ucontrol->value.integer.value[0];
-
-	voc_set_mbd_enable(enable);
-
-	return 0;
-}
 
 
 static const char * const tty_mode[] = {"OFF", "HCO", "VCO", "FULL"};
@@ -677,8 +661,6 @@ static struct snd_kcontrol_new msm_voice_controls[] = {
 	},
 	SOC_SINGLE_MULTI_EXT("Voice Sidetone Enable", SND_SOC_NOPM, 0, 1, 0, 1,
 			     msm_voice_sidetone_get, msm_voice_sidetone_put),
-	SOC_SINGLE_BOOL_EXT("Voice Mic Break Enable", 0, msm_voice_mbd_get,
-				msm_voice_mbd_put),
 };
 
 static const struct snd_pcm_ops msm_pcm_ops = {
@@ -720,9 +702,7 @@ static int msm_pcm_probe(struct platform_device *pdev)
 {
 	int rc;
 	bool destroy_cvd = false;
-	bool vote_bms = false;
 	const char *is_destroy_cvd = "qcom,destroy-cvd";
-	const char *is_vote_bms = "qcom,vote-bms";
 
 	if (!is_voc_initialized()) {
 		pr_debug("%s: voice module not initialized yet, deferring probe()\n",
@@ -748,10 +728,6 @@ static int msm_pcm_probe(struct platform_device *pdev)
 	destroy_cvd = of_property_read_bool(pdev->dev.of_node,
 						is_destroy_cvd);
 	voc_set_destroy_cvd_flag(destroy_cvd);
-
-	vote_bms = of_property_read_bool(pdev->dev.of_node,
-					 is_vote_bms);
-	voc_set_vote_bms_flag(vote_bms);
 
 	rc = snd_soc_register_platform(&pdev->dev,
 				       &msm_soc_platform);

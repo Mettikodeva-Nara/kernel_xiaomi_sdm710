@@ -1,4 +1,5 @@
-/* Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2018 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,10 +28,12 @@
 #include <dsp/q6afe-v2.h>
 #include <dsp/q6core.h>
 #include <ipc/apr.h>
+#include <soc/qcom/socinfo.h>
 #include "msm-analog-cdc.h"
 #include "msm-cdc-common.h"
 #include "sdm660-cdc-irq.h"
 #include "msm-analog-cdc-regmap.h"
+#include "../../sdm660-common.h"
 #include "../wcd-mbhc-v2-api.h"
 
 #define DRV_NAME "pmic_analog_codec"
@@ -72,7 +75,6 @@
 
 #define VOLTAGE_CONVERTER(value, min_value, step_size)\
 	((value - min_value)/step_size)
-#define APR_DEST_QDSP6 1
 
 enum {
 	BOOST_SWITCH = 0,
@@ -88,9 +90,6 @@ static bool spkr_boost_en = true;
 
 static char on_demand_supply_name[][MAX_ON_DEMAND_SUPPLY_NAME_LENGTH] = {
 	"cdc-vdd-mic-bias",
-	"",
-	"cdc-vdda18-l10",
-	"cdc-vdd-l1",
 };
 
 static struct wcd_mbhc_register
@@ -195,7 +194,6 @@ static int msm_anlg_cdc_enable_ext_mb_source(struct wcd_mbhc *wcd_mbhc,
 					     bool turn_on);
 static void msm_anlg_cdc_trim_btn_reg(struct snd_soc_codec *codec);
 static void msm_anlg_cdc_set_micb_v(struct snd_soc_codec *codec);
-static void msm_anlg_cdc_set_micb2_v(struct snd_soc_codec *codec, u32 mv);
 static void msm_anlg_cdc_set_boost_v(struct snd_soc_codec *codec);
 static void msm_anlg_cdc_set_auto_zeroing(struct snd_soc_codec *codec,
 					  bool enable);
@@ -916,7 +914,6 @@ static const struct wcd_mbhc_cb mbhc_cb = {
 	.trim_btn_reg = msm_anlg_cdc_trim_btn_reg,
 	.compute_impedance = msm_anlg_cdc_mbhc_calc_impedance,
 	.set_micbias_value = msm_anlg_cdc_set_micb_v,
-	.set_micbias2_value = msm_anlg_cdc_set_micb2_v,
 	.set_auto_zeroing = msm_anlg_cdc_set_auto_zeroing,
 	.get_hwdep_fw_cal = msm_anlg_cdc_get_hwdep_fw_cal,
 	.set_cap_mode = msm_anlg_cdc_configure_cap,
@@ -1469,6 +1466,9 @@ out:
 static int msm_anlg_cdc_codec_enable_clock_block(struct snd_soc_codec *codec,
 						 int enable)
 {
+	struct msm_asoc_mach_data *pdata = NULL;
+
+	pdata = snd_soc_card_get_drvdata(codec->component.card);
 	if (enable) {
 		snd_soc_update_bits(codec,
 			MSM89XX_PMIC_ANALOG_MASTER_BIAS_CTL, 0x30, 0x30);
@@ -2263,6 +2263,10 @@ static int msm_anlg_cdc_codec_enable_spk_pa(struct snd_soc_dapm_widget *w,
 				snd_soc_update_bits(codec,
 					MSM89XX_PMIC_ANALOG_SPKR_DRV_CTL,
 					0xEF, 0xEF);
+			else
+				snd_soc_update_bits(codec,
+					MSM89XX_PMIC_ANALOG_SPKR_DAC_CTL,
+					0x10, 0x00);
 			break;
 		case BOOST_ALWAYS:
 		case BOOST_ON_FOREVER:
@@ -2271,6 +2275,8 @@ static int msm_anlg_cdc_codec_enable_spk_pa(struct snd_soc_dapm_widget *w,
 				0xEF, 0xEF);
 			break;
 		case BYPASS_ALWAYS:
+			snd_soc_update_bits(codec,
+				MSM89XX_PMIC_ANALOG_SPKR_DAC_CTL, 0x10, 0x00);
 			break;
 		default:
 			dev_err(codec->dev,
@@ -2278,8 +2284,6 @@ static int msm_anlg_cdc_codec_enable_spk_pa(struct snd_soc_dapm_widget *w,
 				sdm660_cdc->boost_option);
 			break;
 		}
-		snd_soc_update_bits(codec, MSM89XX_PMIC_ANALOG_SPKR_DAC_CTL,
-				    0x10, 0x00);
 		msm_anlg_cdc_dig_notifier_call(codec,
 					       DIG_CDC_EVENT_RX3_MUTE_OFF);
 		snd_soc_update_bits(codec, w->reg, 0x80, 0x80);
@@ -2346,6 +2350,9 @@ static int msm_anlg_cdc_codec_enable_dig_clk(struct snd_soc_dapm_widget *w,
 	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
 	struct sdm660_cdc_priv *sdm660_cdc =
 					snd_soc_codec_get_drvdata(codec);
+	struct msm_asoc_mach_data *pdata = NULL;
+
+	pdata = snd_soc_card_get_drvdata(codec->component.card);
 
 	dev_dbg(codec->dev, "%s event %d w->name %s\n", __func__,
 			event, w->name);
@@ -2545,6 +2552,10 @@ static int msm_anlg_cdc_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 		}
 		break;
 	case SND_SOC_DAPM_POST_PMD:
+		if (!sdm660_cdc->micb1_always_on) {
+			snd_soc_update_bits(codec,
+				MSM89XX_PMIC_ANALOG_MICB_1_EN, 0x80, 0x00);
+		}
 		if (strnstr(w->name, internal1_text, strlen(w->name))) {
 			snd_soc_update_bits(codec, micb_int_reg, 0xC0, 0x40);
 		} else if (strnstr(w->name, internal2_text, strlen(w->name))) {
@@ -2779,10 +2790,6 @@ static int msm_anlg_cdc_hphl_dac_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
-		/*
-		 * Add 2ms sleep to fix PA wrong state issue
-		 * during back2back hph disable-enable
-		 */
 		usleep_range(2000, 2100);
 		if (get_codec_version(sdm660_cdc) > CAJON)
 			snd_soc_update_bits(codec,
@@ -2860,6 +2867,8 @@ static int msm_anlg_cdc_lo_dac_event(struct snd_soc_dapm_widget *w,
 			MSM89XX_PMIC_ANALOG_RX_LO_DAC_CTL, 0x80, 0x80);
 		snd_soc_update_bits(codec,
 			MSM89XX_PMIC_ANALOG_RX_LO_DAC_CTL, 0x08, 0x00);
+		snd_soc_update_bits(codec,
+			MSM89XX_PMIC_ANALOG_RX_LO_EN_CTL, 0x40, 0x40);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		/* Wait for 20ms before powerdown of lineout_dac */
@@ -2872,6 +2881,8 @@ static int msm_anlg_cdc_lo_dac_event(struct snd_soc_dapm_widget *w,
 			MSM89XX_PMIC_ANALOG_RX_LO_DAC_CTL, 0x08, 0x00);
 		snd_soc_update_bits(codec,
 			MSM89XX_PMIC_ANALOG_RX_LO_EN_CTL, 0x80, 0x00);
+		snd_soc_update_bits(codec,
+			MSM89XX_PMIC_ANALOG_RX_LO_EN_CTL, 0x40, 0x00);
 		snd_soc_update_bits(codec,
 			MSM89XX_PMIC_ANALOG_RX_LO_EN_CTL, 0x20, 0x00);
 		snd_soc_update_bits(codec,
@@ -2893,10 +2904,6 @@ static int msm_anlg_cdc_hphr_dac_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
-		/*
-		 * Add 2ms sleep to fix PA wrong state issue
-		 * during back2back hph disable-enable
-		 */
 		usleep_range(2000, 2100);
 		if (sdm660_cdc->hph_mode == HD2_MODE)
 			msm_anlg_cdc_dig_notifier_call(codec,
@@ -3253,7 +3260,7 @@ static int msm_anlg_cdc_codec_enable_lo_pa(struct snd_soc_dapm_widget *w,
 		msm_anlg_cdc_dig_notifier_call(codec,
 				       DIG_CDC_EVENT_RX3_MUTE_OFF);
 		break;
-	case SND_SOC_DAPM_PRE_PMD:
+	case SND_SOC_DAPM_POST_PMD:
 		msm_anlg_cdc_dig_notifier_call(codec,
 				       DIG_CDC_EVENT_RX3_MUTE_ON);
 		break;
@@ -3378,13 +3385,13 @@ static const struct snd_soc_dapm_widget msm_anlg_cdc_dapm_widgets[] = {
 		msm_anlg_cdc_hph_pa_event, SND_SOC_DAPM_PRE_PMU |
 		SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_PRE_PMD |
 		SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_PGA_E("SPK PA", MSM89XX_PMIC_ANALOG_SPKR_DRV_CTL,
-		7, 0, NULL, 0, msm_anlg_cdc_codec_enable_spk_pa,
-		SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU |
-		SND_SOC_DAPM_PRE_PMD | SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_PGA_E("SPK PA", SND_SOC_NOPM,
+			0, 0, NULL, 0, msm_anlg_cdc_codec_enable_spk_pa,
+			SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMU |
+			SND_SOC_DAPM_PRE_PMD | SND_SOC_DAPM_POST_PMD),
 	SND_SOC_DAPM_PGA_E("LINEOUT PA", MSM89XX_PMIC_ANALOG_RX_LO_EN_CTL,
-			6, 0, NULL, 0, msm_anlg_cdc_codec_enable_lo_pa,
-			SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_PRE_PMD),
+			5, 0, NULL, 0, msm_anlg_cdc_codec_enable_lo_pa,
+			SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
 
 	SND_SOC_DAPM_MUX("EAR_S", SND_SOC_NOPM, 0, 0, ear_pa_mux),
 	SND_SOC_DAPM_MUX("SPK", SND_SOC_NOPM, 0, 0, spkr_mux),
@@ -3447,16 +3454,6 @@ static const struct snd_soc_dapm_widget msm_anlg_cdc_dapm_widgets[] = {
 	SND_SOC_DAPM_SUPPLY("INT_LDO_H", SND_SOC_NOPM, 1, 0, NULL, 0),
 	SND_SOC_DAPM_SUPPLY("MICBIAS_REGULATOR", SND_SOC_NOPM,
 		ON_DEMAND_MICBIAS, 0,
-		msm_anlg_cdc_codec_enable_on_demand_supply,
-		SND_SOC_DAPM_PRE_PMU |
-		SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_SUPPLY("VDDA18_L10_REGULATOR", SND_SOC_NOPM,
-		ON_DEMAND_VDDA18_L10, 0,
-		msm_anlg_cdc_codec_enable_on_demand_supply,
-		SND_SOC_DAPM_PRE_PMU |
-		SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_SUPPLY("VDD_L1_REGULATOR", SND_SOC_NOPM,
-		ON_DEMAND_VDD_L1, 0,
 		msm_anlg_cdc_codec_enable_on_demand_supply,
 		SND_SOC_DAPM_PRE_PMU |
 		SND_SOC_DAPM_POST_PMD),
@@ -3716,11 +3713,13 @@ static void msm_anlg_cdc_update_micbias_regulator(
 
 static int msm_anlg_cdc_device_down(struct snd_soc_codec *codec)
 {
+	struct msm_asoc_mach_data *pdata = NULL;
 	struct sdm660_cdc_priv *sdm660_cdc_priv =
 		snd_soc_codec_get_drvdata(codec);
 	unsigned int tx_1_en;
 	unsigned int tx_2_en;
 
+	pdata = snd_soc_card_get_drvdata(codec->component.card);
 	dev_dbg(codec->dev, "%s: device down!\n", __func__);
 
 	tx_1_en = snd_soc_read(codec, MSM89XX_PMIC_ANALOG_TX_1_EN);
@@ -3770,11 +3769,12 @@ static int msm_anlg_cdc_device_down(struct snd_soc_codec *codec)
 	}
 	msm_anlg_cdc_boost_off(codec);
 	sdm660_cdc_priv->hph_mode = NORMAL_MODE;
+
+	/* 40ms to allow boost to discharge */
+	msleep(40);
 	/* Disable PA to avoid pop during codec bring up */
 	snd_soc_update_bits(codec, MSM89XX_PMIC_ANALOG_RX_HPH_CNP_EN,
 			0x30, 0x00);
-	/* 40ms to allow boost to discharge */
-	msleep(40);
 	snd_soc_update_bits(codec, MSM89XX_PMIC_ANALOG_SPKR_DRV_CTL,
 			0x80, 0x00);
 	snd_soc_write(codec,
@@ -3832,15 +3832,13 @@ static int sdm660_cdc_notifier_service_cb(struct notifier_block *nb,
 	bool timedout;
 	unsigned long timeout;
 	static bool initial_boot = true;
-	struct audio_notifier_cb_data *cb_data = ptr;
 
 	codec = sdm660_cdc_priv->codec;
 	dev_dbg(codec->dev, "%s: Service opcode 0x%lx\n", __func__, opcode);
 
 	switch (opcode) {
 	case AUDIO_NOTIFIER_SERVICE_DOWN:
-		if (initial_boot &&
-			cb_data->service == AUDIO_NOTIFIER_PDR_SERVICE) {
+		if (initial_boot) {
 			initial_boot = false;
 			break;
 		}
@@ -3849,8 +3847,7 @@ static int sdm660_cdc_notifier_service_cb(struct notifier_block *nb,
 		msm_anlg_cdc_device_down(codec);
 		break;
 	case AUDIO_NOTIFIER_SERVICE_UP:
-		if (initial_boot &&
-			cb_data->service == AUDIO_NOTIFIER_PDR_SERVICE)
+		if (initial_boot)
 			initial_boot = false;
 		dev_dbg(codec->dev,
 			"ADSP is about to power up. bring up codec\n");
@@ -3918,42 +3915,10 @@ static void msm_anlg_cdc_set_micb_v(struct snd_soc_codec *codec)
 	struct sdm660_cdc_pdata *pdata = sdm660_cdc->dev->platform_data;
 	u8 reg_val;
 
-	if (pdata->micbias.cfilt2_mv > 0) {
-		reg_val = VOLTAGE_CONVERTER(pdata->micbias.cfilt2_mv, MICBIAS_MIN_VAL,
-				MICBIAS_STEP_SIZE);
-		dev_dbg(codec->dev, "cfilt2_mv %d reg_val %x\n",
-				(u32)pdata->micbias.cfilt2_mv, reg_val);
-	} else {
-		reg_val = VOLTAGE_CONVERTER(pdata->micbias.cfilt1_mv, MICBIAS_MIN_VAL,
-				MICBIAS_STEP_SIZE);
-		dev_dbg(codec->dev, "cfilt1_mv %d reg_val %x\n",
-				(u32)pdata->micbias.cfilt1_mv, reg_val);
-	}
-
-	snd_soc_update_bits(codec, MSM89XX_PMIC_ANALOG_MICB_1_VAL,
-			0xF8, (reg_val << 3));
-}
-
-static void msm_anlg_cdc_set_micb2_v(struct snd_soc_codec *codec, u32 mv)
-{
-	struct sdm660_cdc_priv *sdm660_cdc = snd_soc_codec_get_drvdata(codec);
-	struct sdm660_cdc_pdata *pdata = sdm660_cdc->dev->platform_data;
-	u8 reg_val;
-
-	pdata->micbias.cfilt2_mv = mv;
-
-	if (pdata->micbias.cfilt2_mv > 0) {
-		reg_val = VOLTAGE_CONVERTER(pdata->micbias.cfilt2_mv, MICBIAS_MIN_VAL,
-				MICBIAS_STEP_SIZE);
-		dev_dbg(codec->dev, "cfilt2_mv %d reg_val %x\n",
-				(u32)pdata->micbias.cfilt2_mv, reg_val);
-	} else {
-		reg_val = VOLTAGE_CONVERTER(pdata->micbias.cfilt1_mv, MICBIAS_MIN_VAL,
-				MICBIAS_STEP_SIZE);
-		dev_dbg(codec->dev, "cfilt1_mv %d reg_val %x\n",
-				(u32)pdata->micbias.cfilt1_mv, reg_val);
-	}
-
+	reg_val = VOLTAGE_CONVERTER(pdata->micbias.cfilt1_mv, MICBIAS_MIN_VAL,
+			MICBIAS_STEP_SIZE);
+	dev_dbg(codec->dev, "cfilt1_mv %d reg_val %x\n",
+			(u32)pdata->micbias.cfilt1_mv, reg_val);
 	snd_soc_update_bits(codec, MSM89XX_PMIC_ANALOG_MICB_1_VAL,
 			0xF8, (reg_val << 3));
 }
@@ -3970,18 +3935,17 @@ static void msm_anlg_cdc_set_boost_v(struct snd_soc_codec *codec)
 static void msm_anlg_cdc_configure_cap(struct snd_soc_codec *codec,
 				       bool micbias1, bool micbias2)
 {
-	struct sdm660_cdc_priv *sdm660_cdc = snd_soc_codec_get_drvdata(codec);
-	struct msm_cap_mode *cap_mode = &sdm660_cdc->cap_mode;
 
-	blocking_notifier_call_chain(&sdm660_cdc->notifier,
-		 DIG_CDC_EVENT_CAP_CONFIGURE, cap_mode);
+	struct msm_asoc_mach_data *pdata = NULL;
+
+	pdata = snd_soc_card_get_drvdata(codec->component.card);
 
 	pr_debug("\n %s: micbias1 %x micbias2 = %d\n", __func__, micbias1,
 			micbias2);
 	if (micbias1 && micbias2) {
-		if ((cap_mode->micbias1_cap_mode
+		if ((pdata->micbias1_cap_mode
 		     == MICBIAS_EXT_BYP_CAP) ||
-		    (cap_mode->micbias2_cap_mode
+		    (pdata->micbias2_cap_mode
 		     == MICBIAS_EXT_BYP_CAP))
 			snd_soc_update_bits(codec,
 				MSM89XX_PMIC_ANALOG_MICB_1_EN,
@@ -3992,10 +3956,10 @@ static void msm_anlg_cdc_configure_cap(struct snd_soc_codec *codec,
 				0x40, (MICBIAS_NO_EXT_BYP_CAP << 6));
 	} else if (micbias2) {
 		snd_soc_update_bits(codec, MSM89XX_PMIC_ANALOG_MICB_1_EN,
-				0x40, (cap_mode->micbias2_cap_mode << 6));
+				0x40, (pdata->micbias2_cap_mode << 6));
 	} else if (micbias1) {
 		snd_soc_update_bits(codec, MSM89XX_PMIC_ANALOG_MICB_1_EN,
-				0x40, (cap_mode->micbias1_cap_mode << 6));
+				0x40, (pdata->micbias1_cap_mode << 6));
 	} else {
 		snd_soc_update_bits(codec, MSM89XX_PMIC_ANALOG_MICB_1_EN,
 				0x40, 0x00);
@@ -4020,12 +3984,6 @@ static ssize_t msm_anlg_codec_version_read(struct snd_info_entry *entry,
 
 	switch (get_codec_version(sdm660_cdc_priv)) {
 	case DRAX_CDC:
-	case DIANGU:
-	case CAJON_2_0:
-	case CAJON:
-	case CONGA:
-	case TOMBAK_2_0:
-	case TOMBAK_1_0:
 		len = snprintf(buffer, sizeof(buffer), "DRAX-CDC_1_0\n");
 		break;
 	default:
@@ -4063,8 +4021,8 @@ int msm_anlg_codec_info_create_codec_entry(struct snd_info_entry *codec_root,
 	sdm660_cdc_priv = snd_soc_codec_get_drvdata(codec);
 	card = codec->component.card;
 	sdm660_cdc_priv->entry = snd_info_create_subdir(codec_root->module,
-							    sdm660_cdc_priv->pmic_analog,
-							    codec_root);
+							     "spmi0-03",
+							     codec_root);
 	if (!sdm660_cdc_priv->entry) {
 		dev_dbg(codec->dev, "%s: failed to create pmic_analog entry\n",
 			__func__);
@@ -4093,13 +4051,8 @@ int msm_anlg_codec_info_create_codec_entry(struct snd_info_entry *codec_root,
 
 	sdm660_cdc_priv->audio_ssr_nb.notifier_call =
 				sdm660_cdc_notifier_service_cb;
-	if (apr_get_dest_id("ADSP") == APR_DEST_QDSP6)
-		ret = audio_notifier_register("pmic_analog_cdc",
+	ret = audio_notifier_register("pmic_analog_cdc",
 				      AUDIO_NOTIFIER_ADSP_DOMAIN,
-				      &sdm660_cdc_priv->audio_ssr_nb);
-	else
-		ret = audio_notifier_register("pmic_analog_cdc",
-				      AUDIO_NOTIFIER_MODEM_DOMAIN,
 				      &sdm660_cdc_priv->audio_ssr_nb);
 	if (ret < 0) {
 		pr_err("%s: Audio notifier register failed ret = %d\n",
@@ -4192,20 +4145,6 @@ static int msm_anlg_cdc_soc_probe(struct snd_soc_codec *codec)
 	atomic_set(&sdm660_cdc->on_demand_list[ON_DEMAND_MICBIAS].ref,
 		   0);
 
-	msm_anlg_cdc_update_micbias_regulator(
-				sdm660_cdc,
-				on_demand_supply_name[ON_DEMAND_VDD_L1],
-				&sdm660_cdc->on_demand_list[ON_DEMAND_VDD_L1]);
-	atomic_set(&sdm660_cdc->on_demand_list[ON_DEMAND_VDD_L1].ref,
-		   0);
-
-	msm_anlg_cdc_update_micbias_regulator(
-			sdm660_cdc,
-			on_demand_supply_name[ON_DEMAND_VDDA18_L10],
-			&sdm660_cdc->on_demand_list[ON_DEMAND_VDDA18_L10]);
-	atomic_set(&sdm660_cdc->on_demand_list[ON_DEMAND_VDDA18_L10].ref,
-		   0);
-
 	sdm660_cdc->fw_data = devm_kzalloc(codec->dev,
 					sizeof(*(sdm660_cdc->fw_data)),
 					GFP_KERNEL);
@@ -4252,13 +4191,6 @@ static int msm_anlg_cdc_soc_remove(struct snd_soc_codec *codec)
 	sdm660_cdc_priv->on_demand_list[ON_DEMAND_MICBIAS].supply = NULL;
 	atomic_set(&sdm660_cdc_priv->on_demand_list[ON_DEMAND_MICBIAS].ref,
 		   0);
-	sdm660_cdc_priv->on_demand_list[ON_DEMAND_VDD_L1].supply = NULL;
-	atomic_set(&sdm660_cdc_priv->on_demand_list[ON_DEMAND_VDD_L1].ref,
-		   0);
-	sdm660_cdc_priv->on_demand_list[ON_DEMAND_VDDA18_L10].supply = NULL;
-	atomic_set(&sdm660_cdc_priv->on_demand_list[ON_DEMAND_VDDA18_L10].ref,
-		   0);
-
 	wcd_mbhc_deinit(&sdm660_cdc_priv->mbhc);
 
 	return 0;
@@ -4347,10 +4279,12 @@ static int msm_anlg_cdc_suspend(struct snd_soc_codec *codec)
 
 static int msm_anlg_cdc_resume(struct snd_soc_codec *codec)
 {
+	struct msm_asoc_mach_data *pdata = NULL;
 	struct sdm660_cdc_priv *sdm660_cdc = snd_soc_codec_get_drvdata(codec);
 	struct sdm660_cdc_pdata *sdm660_cdc_pdata =
 					sdm660_cdc->dev->platform_data;
 
+	pdata = snd_soc_card_get_drvdata(codec->component.card);
 	msm_anlg_cdc_enable_static_supplies_to_optimum(sdm660_cdc,
 						       sdm660_cdc_pdata);
 	return 0;
@@ -4469,7 +4403,7 @@ static int msm_anlg_cdc_init_supplies(struct sdm660_cdc_priv *sdm660_cdc,
 	return ret;
 
 err_supplies:
-	devm_kfree(sdm660_cdc->dev, sdm660_cdc->supplies);
+	kfree(sdm660_cdc->supplies);
 err:
 	return ret;
 }
@@ -4515,6 +4449,9 @@ static void msm_anlg_cdc_disable_supplies(struct sdm660_cdc_priv *sdm660_cdc,
 				pdata->regulator[i].max_uv);
 		regulator_set_load(sdm660_cdc->supplies[i].consumer, 0);
 	}
+	regulator_bulk_free(sdm660_cdc->num_of_supplies,
+			    sdm660_cdc->supplies);
+	kfree(sdm660_cdc->supplies);
 }
 
 static const struct of_device_id sdm660_codec_of_match[] = {
@@ -4601,7 +4538,6 @@ static void msm_anlg_add_child_devices(struct work_struct *work)
 				__func__);
 			pdata->dig_ctrl_data = dig_ctrl_data;
 		}
-		pdata->pdev_child_devices[pdata->child_count++] = pdev;
 	}
 
 	return;
@@ -4611,18 +4547,39 @@ err:
 	return;
 }
 
+bool chk_hw_va(void)
+{
+	int hw_platform, hw_major, hw_minor;
+
+	hw_platform = get_hw_version_platform();
+	hw_major = get_hw_version_major();
+	hw_minor = get_hw_version_minor();
+
+	printk(KERN_INFO "%s: hw_platform = %d, major <%d>, minor <%d>.\n",
+			__func__, hw_platform, hw_major, hw_minor);
+
+	if (HARDWARE_PLATFORM_SIRIUS == hw_platform) {
+		if ((hw_major == 1 && hw_minor < 2) || (hw_minor == 0)) {
+			printk("%s: Hardware does support dbmd4.\n", __func__);
+			return true;
+		}
+	}
+
+	return false;
+}
+
 static int msm_anlg_cdc_probe(struct platform_device *pdev)
 {
 	int ret = 0;
 	struct sdm660_cdc_priv *sdm660_cdc = NULL;
 	struct sdm660_cdc_pdata *pdata;
 	int adsp_state;
-	const char *parent_dev = NULL;
+
 	adsp_state = apr_get_subsys_state();
-	if (adsp_state == APR_SUBSYS_DOWN ||
+	if (adsp_state != APR_SUBSYS_LOADED ||
 		!q6core_is_adsp_ready()) {
-		dev_err(&pdev->dev, "Adsp is not loaded yet %d\n",
-			adsp_state);
+			dev_err(&pdev->dev, "Adsp is not loaded yet %d\n",
+				adsp_state);
 		return -EPROBE_DEFER;
 	}
 	device_init_wakeup(&pdev->dev, true);
@@ -4677,6 +4634,12 @@ static int msm_anlg_cdc_probe(struct platform_device *pdev)
 	}
 	dev_set_drvdata(&pdev->dev, sdm660_cdc);
 
+	sdm660_cdc->micb1_always_on = chk_hw_va();
+	dev_info(&pdev->dev,
+		"%s: micb1_always_on = %d.\n", __func__,
+		sdm660_cdc->micb1_always_on);
+
+
 	ret = snd_soc_register_codec(&pdev->dev,
 				     &soc_codec_dev_sdm660_cdc,
 				     msm_anlg_cdc_i2s_dai,
@@ -4699,12 +4662,7 @@ static int msm_anlg_cdc_probe(struct platform_device *pdev)
 	INIT_WORK(&sdm660_cdc->msm_anlg_add_child_devices_work,
 		  msm_anlg_add_child_devices);
 	schedule_work(&sdm660_cdc->msm_anlg_add_child_devices_work);
-	parent_dev = pdev->dev.parent->of_node->full_name;
-	if (parent_dev) {
-		snprintf(sdm660_cdc->pmic_analog, PMIC_ANOLOG_SIZE, "spmi0-0%s",
-			 parent_dev + strlen(parent_dev)-1);
-		parent_dev = NULL;
-	}
+
 	return ret;
 err_supplies:
 	msm_anlg_cdc_disable_supplies(sdm660_cdc, pdata);
@@ -4716,16 +4674,9 @@ static int msm_anlg_cdc_remove(struct platform_device *pdev)
 {
 	struct sdm660_cdc_priv *sdm660_cdc = dev_get_drvdata(&pdev->dev);
 	struct sdm660_cdc_pdata *pdata = sdm660_cdc->dev->platform_data;
-	int count;
 
-	for (count = 0; count < sdm660_cdc->child_count &&
-				count < ANLG_CDC_CHILD_DEVICES_MAX; count++)
-		platform_device_unregister(
-				sdm660_cdc->pdev_child_devices[count]);
 	snd_soc_unregister_codec(&pdev->dev);
 	msm_anlg_cdc_disable_supplies(sdm660_cdc, pdata);
-	wcd9xxx_spmi_irq_exit();
-	devm_kfree(&pdev->dev, sdm660_cdc);
 	return 0;
 }
 

@@ -242,7 +242,6 @@ static int wcd_spi_read_single(struct spi_device *spi,
 	struct spi_transfer *tx_xfer = &wcd_spi->xfer2[0];
 	struct spi_transfer *rx_xfer = &wcd_spi->xfer2[1];
 	u8 *tx_buf = wcd_spi->tx_buf;
-	u8 *rx_buf = wcd_spi->rx_buf;
 	u32 frame = 0;
 	int ret;
 
@@ -265,15 +264,10 @@ static int wcd_spi_read_single(struct spi_device *spi,
 	tx_xfer->len = WCD_SPI_READ_SINGLE_LEN;
 
 	wcd_spi_reinit_xfer(rx_xfer);
-	rx_xfer->rx_buf = rx_buf;
+	rx_xfer->rx_buf = val;
 	rx_xfer->len = sizeof(*val);
 
 	ret = spi_sync(spi, &wcd_spi->msg2);
-	if (ret)
-		dev_err(&spi->dev, "%s: spi_sync failed, err %d\n",
-			__func__, ret);
-	else
-		memcpy((u8*) val, rx_buf, sizeof(*val));
 
 	return ret;
 }
@@ -325,22 +319,22 @@ static int wcd_spi_write_single(struct spi_device *spi,
 {
 	struct wcd_spi_priv *wcd_spi = spi_get_drvdata(spi);
 	struct spi_transfer *xfer = &wcd_spi->xfer1;
-	u8 *tx_buf = wcd_spi->tx_buf;
+	u8 buf[WCD_SPI_WRITE_SINGLE_LEN];
 	u32 frame = 0;
 
 	dev_dbg(&spi->dev, "%s: remote_addr = 0x%x, val = 0x%x\n",
 		__func__, remote_addr, val);
 
-	memset(tx_buf, 0, WCD_SPI_WRITE_SINGLE_LEN);
+	memset(buf, 0, WCD_SPI_WRITE_SINGLE_LEN);
 	frame |= WCD_SPI_WRITE_FRAME_OPCODE;
 	frame |= (remote_addr & WCD_CMD_ADDR_MASK);
 
 	frame = cpu_to_be32(frame);
-	memcpy(tx_buf, &frame, sizeof(frame));
-	memcpy(tx_buf + sizeof(frame), &val, sizeof(val));
+	memcpy(buf, &frame, sizeof(frame));
+	memcpy(buf + sizeof(frame), &val, sizeof(val));
 
 	wcd_spi_reinit_xfer(xfer);
-	xfer->tx_buf = tx_buf;
+	xfer->tx_buf = buf;
 	xfer->len = WCD_SPI_WRITE_SINGLE_LEN;
 
 	return spi_sync(spi, &wcd_spi->msg1);
@@ -493,26 +487,21 @@ done:
 
 static int wcd_spi_cmd_nop(struct spi_device *spi)
 {
-	struct wcd_spi_priv *wcd_spi = spi_get_drvdata(spi);
-	u8 *tx_buf = wcd_spi->tx_buf;
+	u8 nop = WCD_SPI_CMD_NOP;
 
-	tx_buf[0] = WCD_SPI_CMD_NOP;
-
-	return spi_write(spi, tx_buf, WCD_SPI_CMD_NOP_LEN);
+	return spi_write(spi, &nop, WCD_SPI_CMD_NOP_LEN);
 }
 
 static int wcd_spi_cmd_clkreq(struct spi_device *spi)
 {
 	struct wcd_spi_priv *wcd_spi = spi_get_drvdata(spi);
 	struct spi_transfer *xfer = &wcd_spi->xfer1;
-	u8 *tx_buf = wcd_spi->tx_buf;
 	u8 cmd[WCD_SPI_CMD_CLKREQ_LEN] = {
 		WCD_SPI_CMD_CLKREQ,
 		0xBA, 0x80, 0x00};
 
-	memcpy(tx_buf, cmd, WCD_SPI_CMD_CLKREQ_LEN);
 	wcd_spi_reinit_xfer(xfer);
-	xfer->tx_buf = tx_buf;
+	xfer->tx_buf = cmd;
 	xfer->len = WCD_SPI_CMD_CLKREQ_LEN;
 	xfer->delay_usecs = WCD_SPI_CLKREQ_DELAY_USECS;
 
@@ -521,12 +510,9 @@ static int wcd_spi_cmd_clkreq(struct spi_device *spi)
 
 static int wcd_spi_cmd_wr_en(struct spi_device *spi)
 {
-	struct wcd_spi_priv *wcd_spi = spi_get_drvdata(spi);
-	u8 *tx_buf = wcd_spi->tx_buf;
+	u8 wr_en = WCD_SPI_CMD_WREN;
 
-	tx_buf[0] = WCD_SPI_CMD_WREN;
-
-	return spi_write(spi, tx_buf, WCD_SPI_CMD_WREN_LEN);
+	return spi_write(spi, &wr_en, WCD_SPI_CMD_WREN_LEN);
 }
 
 static int wcd_spi_cmd_rdsr(struct spi_device *spi,
@@ -535,19 +521,19 @@ static int wcd_spi_cmd_rdsr(struct spi_device *spi,
 	struct wcd_spi_priv *wcd_spi = spi_get_drvdata(spi);
 	struct spi_transfer *tx_xfer = &wcd_spi->xfer2[0];
 	struct spi_transfer *rx_xfer = &wcd_spi->xfer2[1];
-	u8 *tx_buf = wcd_spi->tx_buf;
-	u8 *rx_buf = wcd_spi->rx_buf;
+	u8 rdsr_cmd;
+	u32 status = 0;
 	int ret;
 
-	tx_buf[0] = WCD_SPI_CMD_RDSR;
+	rdsr_cmd = WCD_SPI_CMD_RDSR;
 	wcd_spi_reinit_xfer(tx_xfer);
-	tx_xfer->tx_buf = tx_buf;
-	tx_xfer->len = WCD_SPI_OPCODE_LEN;
+	tx_xfer->tx_buf = &rdsr_cmd;
+	tx_xfer->len = sizeof(rdsr_cmd);
 
-	memset(rx_buf, 0, sizeof(*rdsr_status));
+
 	wcd_spi_reinit_xfer(rx_xfer);
-	rx_xfer->rx_buf = rx_buf;
-	rx_xfer->len = sizeof(*rdsr_status);
+	rx_xfer->rx_buf = &status;
+	rx_xfer->len = sizeof(status);
 
 	ret = spi_sync(spi, &wcd_spi->msg2);
 	if (ret < 0) {
@@ -556,10 +542,10 @@ static int wcd_spi_cmd_rdsr(struct spi_device *spi,
 		goto done;
 	}
 
-	*rdsr_status = be32_to_cpu(*((u32*)rx_buf));
+	*rdsr_status = be32_to_cpu(status);
 
 	dev_dbg(&spi->dev, "%s: RDSR success, value = 0x%x\n",
-		__func__, *rdsr_status);
+		 __func__, *rdsr_status);
 done:
 	return ret;
 }
@@ -1025,7 +1011,7 @@ static int wcd_spi_bus_gwrite(void *context, const void *reg,
 	struct device *dev = context;
 	struct spi_device *spi = to_spi_device(dev);
 	struct wcd_spi_priv *wcd_spi = spi_get_drvdata(spi);
-	u8 *tx_buf = wcd_spi->tx_buf;
+	u8 tx_buf[WCD_SPI_CMD_IRW_LEN];
 
 	if (!reg || !val || reg_len != wcd_spi->reg_bytes ||
 	    val_len != wcd_spi->val_bytes) {
@@ -1035,10 +1021,9 @@ static int wcd_spi_bus_gwrite(void *context, const void *reg,
 		return -EINVAL;
 	}
 
-	memset(tx_buf, 0, WCD_SPI_CMD_IRW_LEN);
 	tx_buf[0] = WCD_SPI_CMD_IRW;
 	tx_buf[1] = *((u8 *)reg);
-	memcpy(tx_buf + WCD_SPI_OPCODE_LEN + reg_len,
+	memcpy(&tx_buf[WCD_SPI_OPCODE_LEN + reg_len],
 	       val, val_len);
 
 	return spi_write(spi, tx_buf, WCD_SPI_CMD_IRW_LEN);
@@ -1072,9 +1057,7 @@ static int wcd_spi_bus_read(void *context, const void *reg,
 	struct wcd_spi_priv *wcd_spi = spi_get_drvdata(spi);
 	struct spi_transfer *tx_xfer = &wcd_spi->xfer2[0];
 	struct spi_transfer *rx_xfer = &wcd_spi->xfer2[1];
-	u8 *tx_buf = wcd_spi->tx_buf;
-	u8 *rx_buf = wcd_spi->rx_buf;
-	int ret = 0;
+	u8 tx_buf[WCD_SPI_CMD_IRR_LEN];
 
 	if (!reg || !val || reg_len != wcd_spi->reg_bytes ||
 	    val_len != wcd_spi->val_bytes) {
@@ -1084,7 +1067,7 @@ static int wcd_spi_bus_read(void *context, const void *reg,
 		return -EINVAL;
 	}
 
-	memset(tx_buf, 0, WCD_SPI_CMD_IRR_LEN);
+	memset(tx_buf, 0, WCD_SPI_OPCODE_LEN);
 	tx_buf[0] = WCD_SPI_CMD_IRR;
 	tx_buf[1] = *((u8 *)reg);
 
@@ -1095,20 +1078,10 @@ static int wcd_spi_bus_read(void *context, const void *reg,
 
 	wcd_spi_reinit_xfer(rx_xfer);
 	rx_xfer->tx_buf = NULL;
-	rx_xfer->rx_buf = rx_buf;
+	rx_xfer->rx_buf = val;
 	rx_xfer->len = val_len;
 
-	ret = spi_sync(spi, &wcd_spi->msg2);
-	if (ret) {
-		dev_err(&spi->dev, "%s: spi_sync failed, err %d\n",
-			__func__, ret);
-		goto done;
-	}
-
-	memcpy(val, rx_buf, val_len);
-
-done:
-	return ret;
+	return spi_sync(spi, &wcd_spi->msg2);
 }
 
 static struct regmap_bus wcd_spi_regmap_bus = {

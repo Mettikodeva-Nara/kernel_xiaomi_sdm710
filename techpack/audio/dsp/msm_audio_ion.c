@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2018, 2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -158,7 +158,6 @@ int msm_audio_ion_alloc(const char *name, struct ion_client **client,
 	*vaddr = ion_map_kernel(*client, *handle);
 	if (IS_ERR_OR_NULL((void *)*vaddr)) {
 		pr_err("%s: ION memory mapping for AUDIO failed\n", __func__);
-		rc = -ENOMEM;
 		goto err_ion_handle;
 	}
 	pr_debug("%s: mapped address = %pK, size=%zd\n", __func__,
@@ -561,7 +560,7 @@ static int msm_audio_dma_buf_map(struct ion_client *client,
 		ion_phys_addr_t *addr, size_t *len)
 {
 
-	struct msm_audio_alloc_data *alloc_data = NULL;
+	struct msm_audio_alloc_data *alloc_data;
 	struct device *cb_dev;
 	int rc = 0;
 
@@ -647,7 +646,7 @@ err_attach:
 
 err_dma_buf:
 	kfree(alloc_data);
-	alloc_data = NULL;
+
 	return rc;
 }
 
@@ -691,7 +690,6 @@ static int msm_audio_dma_buf_unmap(struct ion_client *client,
 
 			list_del(&(alloc_data->list));
 			kfree(alloc_data);
-			alloc_data = NULL;
 			break;
 		}
 	}

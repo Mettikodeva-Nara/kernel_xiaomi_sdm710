@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, 2020 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -46,8 +46,6 @@
 #define LPASS_BE_VOICE2_PLAYBACK_TX "VOICE2_PLAYBACK_TX"
 #define LPASS_BE_INCALL_RECORD_RX "INCALL_RECORD_RX"
 #define LPASS_BE_INCALL_RECORD_TX "INCALL_RECORD_TX"
-#define LPASS_BE_PROXY_RX "PROXY_RX"
-#define LPASS_BE_PROXY_TX "PROXY_TX"
 #define LPASS_BE_SEC_I2S_RX "SECONDARY_I2S_RX"
 #define LPASS_BE_SPDIF_RX "SPDIF_RX"
 
@@ -147,7 +145,6 @@
 #define LPASS_BE_QUAT_TDM_TX_6 "QUAT_TDM_TX_6"
 #define LPASS_BE_QUAT_TDM_RX_7 "QUAT_TDM_RX_7"
 #define LPASS_BE_QUAT_TDM_TX_7 "QUAT_TDM_TX_7"
-#define LPASS_BE_AFE_LOOPBACK_TX "AFE_LOOPBACK_TX"
 #define LPASS_BE_QUIN_TDM_RX_0 "QUIN_TDM_RX_0"
 #define LPASS_BE_QUIN_TDM_TX_0 "QUIN_TDM_TX_0"
 #define LPASS_BE_QUIN_TDM_RX_1 "QUIN_TDM_RX_1"
@@ -216,10 +213,6 @@ enum {
 	MSM_FRONTEND_DAI_MULTIMEDIA20,
 	MSM_FRONTEND_DAI_MULTIMEDIA28,
 	MSM_FRONTEND_DAI_MULTIMEDIA29,
-	MSM_FRONTEND_DAI_MULTIMEDIA30,
-	MSM_FRONTEND_DAI_MULTIMEDIA31,
-	MSM_FRONTEND_DAI_MULTIMEDIA32,
-	MSM_FRONTEND_DAI_MULTIMEDIA33,
 	MSM_FRONTEND_DAI_VOIP,
 	MSM_FRONTEND_DAI_AFE_RX,
 	MSM_FRONTEND_DAI_AFE_TX,
@@ -241,8 +234,8 @@ enum {
 	MSM_FRONTEND_DAI_MAX,
 };
 
-#define MSM_FRONTEND_DAI_MM_SIZE (MSM_FRONTEND_DAI_MULTIMEDIA33 + 1)
-#define MSM_FRONTEND_DAI_MM_MAX_ID MSM_FRONTEND_DAI_MULTIMEDIA33
+#define MSM_FRONTEND_DAI_MM_SIZE (MSM_FRONTEND_DAI_MULTIMEDIA29 + 1)
+#define MSM_FRONTEND_DAI_MM_MAX_ID MSM_FRONTEND_DAI_MULTIMEDIA29
 
 enum {
 	MSM_BACKEND_DAI_PRI_I2S_RX = 0,
@@ -404,9 +397,6 @@ enum {
 	MSM_BACKEND_DAI_INT5_MI2S_TX,
 	MSM_BACKEND_DAI_INT6_MI2S_RX,
 	MSM_BACKEND_DAI_INT6_MI2S_TX,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
-	MSM_BACKEND_DAI_PROXY_RX,
-	MSM_BACKEND_DAI_PROXY_TX,
 	MSM_BACKEND_DAI_MAX,
 };
 
@@ -424,7 +414,6 @@ enum {
 	EXT_EC_REF_QUAT_MI2S_TX,
 	EXT_EC_REF_QUIN_MI2S_TX,
 	EXT_EC_REF_SLIM_1_TX,
-	EXT_EC_REF_PRI_MI2S_RX,
 };
 
 #define INVALID_SESSION -1
@@ -534,8 +523,4 @@ int msm_pcm_routing_reg_stream_app_type_cfg(
 int msm_pcm_routing_get_stream_app_type_cfg(
 	int fedai_id, int session_type, int *be_id,
 	struct msm_pcm_stream_app_type_cfg *cfg_data);
-int msm_pcm_routing_send_chmix_cfg(int fe_id, int ip_channel_cnt,
-				int op_channel_cnt, int *ch_wght_coeff,
-				int session_type, bool use_default_chmap,
-				char *channel_map);
 #endif /*_MSM_PCM_H*/
