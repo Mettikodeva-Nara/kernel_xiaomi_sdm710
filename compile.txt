@@ -1,0 +1,6 @@
+
+export CROSS_COMPILE=~/gcc64/bin/aarch64-linux-android-
+
+export ARCH=arm64 && export SUBARCH=arm64 && make sirius_defconfig O=out
+make -j16 O=out
+
