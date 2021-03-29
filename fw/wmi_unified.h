@@ -257,12 +257,9 @@ typedef enum {
     WMI_GRP_SPATIAL_REUSE,  /* 0x40 */
     WMI_GRP_ESP,            /* 0x41 Estimate Service Parameters (802.11mc) */
     WMI_GRP_HPCS_PULSE,     /* 0x42 */
-<<<<<<< HEAD
-=======
     WMI_GRP_AUDIO,          /* 0x43 */
     WMI_GRP_CFR_CAPTURE,    /* 0x44 */
     WMI_GRP_ATM,            /* 0x45 ATM (Air Time Management group) */
->>>>>>> 7743accca4661262ac8212ee2162ce772b7543e1
 } WMI_GRP_ID;
 
 #define WMI_CMD_GRP_START_ID(grp_id) (((grp_id) << 12) | 0x1)
@@ -1258,8 +1255,6 @@ typedef enum {
 
     /** WMI commands related to High Precision Clock Synchronization feature **/
     WMI_HPCS_PULSE_START_CMDID = WMI_CMD_GRP_START_ID(WMI_GRP_HPCS_PULSE),
-<<<<<<< HEAD
-=======
 
     /** WMI commands related to Audio Frame aggregation feature **/
     WMI_AUDIO_AGGR_ENABLE_CMDID = WMI_CMD_GRP_START_ID(WMI_GRP_AUDIO),
@@ -1278,7 +1273,6 @@ typedef enum {
     WMI_ATF_GROUP_WMM_AC_CONFIG_REQUEST_CMDID,
     /** ATF Peer Extended Request command */
     WMI_PEER_ATF_EXT_REQUEST_CMDID,
->>>>>>> 7743accca4661262ac8212ee2162ce772b7543e1
 } WMI_CMD_ID;
 
 typedef enum {
@@ -2183,6 +2177,20 @@ typedef enum {
 /* Interested readers refer to Rx/Tx MCS Map definition as defined in 802.11ax
  */
 #define WMI_HE_MAX_MCS_4_SS_MASK(r,ss)      ((3 & (r)) << (((ss) - 1) << 1))
+
+/*
+ * index ranges from 0 to 15, and is used for checking if MCS 12/13 is enabled
+ * for a particular NSS.
+ * The lower 8 bits (indices 0-7) within the 16 bits indicate MCS 12/13
+ * enablement for BW <= 80MHz; the upper 8 bits (indices 8-15) within
+ * the 16 bits indicate MCS 12/13 enablement for BW > 80MHz.
+ * The 16 bits for the index values are within the upper bits (bits 31:16)
+ * of a 32-bit word.
+ */
+#define WMI_HE_EXTRA_MCS_SS_GET(he_mcs_map_ext, index) \
+    WMI_GET_BITS(he_mcs_map_ext, 16 + index, 1)
+#define WMI_HE_EXTRA_MCS_SS_SET(he_mcs_map_ext, index, value) \
+    WMI_SET_BITS(he_mcs_map_ext, 16 + index, 1, value)
 
 /* fragmentation support field value */
 enum {
@@ -3858,6 +3866,20 @@ typedef struct {
     A_UINT32 scan_ctrl_flags_ext;
     /** dwell time in msec on active 2G channels, if it's not zero */
     A_UINT32 dwell_time_active_2g;
+    /**
+     * dwell time in msec when 6 GHz channel (PSC or non-PSC) is marked
+     * as an active channel
+     */
+    A_UINT32 dwell_time_active_6ghz;
+    /**
+     * dwell time in msec when 6 GHz channel (PSC or non-PSC) is marked
+     * as a passive channel
+     */
+    A_UINT32 dwell_time_passive_6ghz;
+    /**
+     * Offset time is in milliseconds per channel.
+     */
+    A_UINT32 scan_start_offset;
 
 /**
  * TLV (tag length value) parameters follow the scan_cmd
@@ -3965,10 +3987,8 @@ typedef enum {
 #define WMI_SCAN_DBS_POLICY_RESERVED            0x3
 #define WMI_SCAN_DBS_POLICY_MAX                 0x3
 
-<<<<<<< HEAD
 /** Enable Reception of Public Action frame with this flag
  * (inside scan_ctrl_flags_ext field of wmi_start_scan_cmd_fixed_param)
-=======
 /* Enable Reception of Public Action frame with this flag */
 #define WMI_SCAN_FLAG_EXT_FILTER_PUBLIC_ACTION_FRAME  0x00000004
 
@@ -3993,7 +4013,6 @@ typedef enum {
 /**
  * new 6 GHz flags per chan (short ssid or bssid) in struct
  * wmi_hint_freq_short_ssid or wmi_hint_freq_bssid
->>>>>>> f42bae639aa7ac924eb0477a0f99e342e726e8ee
  */
 #define WMI_SCAN_FLAG_EXT_FILTER_PUBLIC_ACTION_FRAME      0x4
 
@@ -6550,6 +6569,14 @@ typedef struct {
      * the noise floor.
      */
     A_UINT32    ack_rssi;
+    /* xmit rate in kbps */
+    A_UINT32 tx_rate;
+    /* phy mode WLAN_PHY_MODE of the channel defined in wlan_defs.h */
+    A_UINT32 peer_phymode;
+    A_UINT32 retries_count;
+    /* current 64 bit TSF timestamp */
+    A_UINT32 tx_tsf_l32;
+    A_UINT32 tx_tsf_u32;
 } wmi_mgmt_tx_compl_event_fixed_param;
 
 typedef struct {
@@ -11963,7 +11990,16 @@ typedef struct {
      *    value 1 - MCS 0-9 enabled for this NSS
      *    value 2 - MCS 0-11 enabled for this NSS
      *    value 3 - NSS disabled
-     * - WMI_HE_MAX_MCS_4_SS_MASK macro can be used for encoding this info
+     *   WMI_HE_MAX_MCS_4_SS_MASK macro can be used for encoding this info
+     *
+     * - 8 bits x 2 are used for each Nss value for 2 categories of bandwidths,
+     *   to indicate whether MCS 12 and 13 are enabled.
+     *    Bits [16:23] used for checking if MCS 12/13 is enabled for a
+     *        particular NSS (BW <= 80MHz)
+     *    Bits [24:31] used for checking if MCS 12/13 is enabled for a
+     *        particular NSS (BW > 80MHz)
+     *   The WMI_HE_EXTRA_MCS_SS_[GET,SET] macros can be used for accessing
+     *   these bit-fields.
      */
     A_UINT32 tx_mcs_set; /* Negotiated TX HE rates(i.e. rate this node can TX to peer) */
 } wmi_he_rate_set;
@@ -23442,8 +23478,6 @@ typedef enum wmi_coex_config_type {
      * config to enable(1)/disable(0) WAR of BT 2nd harmonic issue function
      */
     WMI_COEX_CONFIG_ENABLE_2ND_HARMONIC_WAR     = 43,
-<<<<<<< HEAD
-=======
     /* WMI_COEX_CONFIG_BTCOEX_SEPARATE_CHAIN_MODE
      * config BTC separate chain mode or shared mode
      */
@@ -23452,7 +23486,6 @@ typedef enum wmi_coex_config_type {
      * enable WLAN throughput shaping while BT scanning
      */
     WMI_COEX_CONFIG_ENABLE_TPUT_SHAPING = 45,
->>>>>>> 7743accca4661262ac8212ee2162ce772b7543e1
 } WMI_COEX_CONFIG_TYPE;
 
 typedef struct {
@@ -24836,8 +24869,6 @@ static INLINE A_UINT8 *wmi_id_to_name(A_UINT32 wmi_command)
         WMI_RETURN_STRING(WMI_ROAM_PREAUTH_STATUS_CMDID);
         WMI_RETURN_STRING(WMI_SET_ELNA_BYPASS_CMDID);
         WMI_RETURN_STRING(WMI_GET_ELNA_BYPASS_CMDID);
-<<<<<<< HEAD
-=======
         WMI_RETURN_STRING(WMI_AUDIO_AGGR_ENABLE_CMDID);
         WMI_RETURN_STRING(WMI_AUDIO_AGGR_ADD_GROUP_CMDID);
         WMI_RETURN_STRING(WMI_AUDIO_AGGR_DEL_GROUP_CMDID);
@@ -24848,7 +24879,6 @@ static INLINE A_UINT8 *wmi_id_to_name(A_UINT32 wmi_command)
         WMI_RETURN_STRING(WMI_ATF_GROUP_WMM_AC_CONFIG_REQUEST_CMDID);
         WMI_RETURN_STRING(WMI_PEER_ATF_EXT_REQUEST_CMDID);
         WMI_RETURN_STRING(WMI_GET_CHANNEL_ANI_CMDID);
->>>>>>> 7743accca4661262ac8212ee2162ce772b7543e1
     }
 
     return "Invalid WMI cmd";
@@ -27927,8 +27957,6 @@ typedef struct {
     A_UINT32 en_dis;
 } wmi_get_elna_bypass_event_fixed_param;
 
-<<<<<<< HEAD
-=======
 typedef struct {
     /** TLV tag and len; tag equals
      * WMITLV_TAG_STRUC_wmi_get_channel_ani_cmd_fixed_param
@@ -28472,7 +28500,6 @@ typedef struct {
     A_UINT32 vdev_id;
 } wmi_peer_config_vlan_cmd_fixed_param;
 
->>>>>>> 7743accca4661262ac8212ee2162ce772b7543e1
 
 
 /* ADD NEW DEFS HERE */
