@@ -1002,6 +1002,18 @@ typedef enum {
     WMITLV_TAG_STRUC_wmi_get_elna_bypass_event_fixed_param,
     WMITLV_TAG_STRUC_wmi_roam_pmkid_request_event_fixed_param,
     WMITLV_TAG_STRUC_wmi_peer_cfr_capture_event_phase_fixed_param,
+<<<<<<< HEAD
+=======
+    WMITLV_TAG_STRUC_wmi_audio_aggr_enable_cmd_fixed_param,
+    WMITLV_TAG_STRUC_audio_aggr_rate_set,
+    WMITLV_TAG_STRUC_wmi_audio_aggr_add_group,
+    WMITLV_TAG_STRUC_wmi_audio_aggr_del_group,
+    WMITLV_TAG_STRUC_wmi_audio_aggr_set_group_rate,
+    WMITLV_TAG_STRUC_wmi_audio_aggr_set_group_retry,
+    WMITLV_TAG_STRUC_wmi_cfr_capture_filter_cmd_fixed_param,
+    WMITLV_TAG_STRUC_wmi_cfr_filter_group_config,
+    WMITLV_TAG_STRUC_wmi_fd_tmpl_cmd_fixed_param,
+>>>>>>> f42bae639aa7ac924eb0477a0f99e342e726e8ee
 } WMITLV_TAG_ID;
 
 /*
@@ -1409,6 +1421,16 @@ typedef enum {
     OP(WMI_ROAM_PREAUTH_STATUS_CMDID) \
     OP(WMI_SET_ELNA_BYPASS_CMDID) \
     OP(WMI_GET_ELNA_BYPASS_CMDID) \
+<<<<<<< HEAD
+=======
+    OP(WMI_AUDIO_AGGR_ENABLE_CMDID) \
+    OP(WMI_AUDIO_AGGR_ADD_GROUP_CMDID) \
+    OP(WMI_AUDIO_AGGR_DEL_GROUP_CMDID) \
+    OP(WMI_AUDIO_AGGR_SET_GROUP_RATE_CMDID) \
+    OP(WMI_AUDIO_AGGR_SET_GROUP_RETRY_CMDID) \
+    OP(WMI_CFR_CAPTURE_FILTER_CMDID) \
+    OP(WMI_FD_TMPL_CMDID) \
+>>>>>>> f42bae639aa7ac924eb0477a0f99e342e726e8ee
     /* add new CMD_LIST elements above this line */
 
 
@@ -2079,6 +2101,13 @@ WMITLV_CREATE_PARAM_STRUC(WMI_PRB_TMPL_CMDID);
     WMITLV_ELEM(id,op,buf,len, WMITLV_TAG_ARRAY_BYTE, A_UINT8, bufp, WMITLV_SIZE_VAR)
 
 WMITLV_CREATE_PARAM_STRUC(WMI_BCN_TMPL_CMDID);
+
+/* FILS Discovery template Cmd */
+#define WMITLV_TABLE_WMI_FD_TMPL_CMDID(id,op,buf,len) \
+    WMITLV_ELEM(id,op,buf,len, WMITLV_TAG_STRUC_wmi_fd_tmpl_cmd_fixed_param, wmi_fd_tmpl_cmd_fixed_param, fixed_param, WMITLV_SIZE_FIX) \
+    WMITLV_ELEM(id,op,buf,len, WMITLV_TAG_ARRAY_BYTE, A_UINT8, bufp, WMITLV_SIZE_VAR)
+
+WMITLV_CREATE_PARAM_STRUC(WMI_FD_TMPL_CMDID);
 
 /* VDEV install key complete Cmd */
 #define WMITLV_TABLE_WMI_VDEV_INSTALL_KEY_CMDID(id,op,buf,len) \
