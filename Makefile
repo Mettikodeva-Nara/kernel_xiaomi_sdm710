@@ -343,12 +343,9 @@ include scripts/Kbuild.include
 # Make variables (CC, etc...)
 AS		= $(CROSS_COMPILE)as
 LD		= $(CROSS_COMPILE)ld
-<<<<<<< HEAD
 REAL_CC		= $(CROSS_COMPILE)gcc
 LDGOLD		= $(CROSS_COMPILE)ld.gold
-=======
 CC		= $(CROSS_COMPILE)gcc
->>>>>>> d1e44504893d... Revert "scripts: gcc-wrapper: Use wrapper to check compiler warnings"
 CPP		= $(CC) -E
 AR		= $(CROSS_COMPILE)ar
 NM		= $(CROSS_COMPILE)nm
