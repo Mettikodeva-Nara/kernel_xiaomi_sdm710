@@ -122,8 +122,7 @@ static void q6lsm_set_param_common(
 		break;
 	case LSM_SESSION_CMD_SET_PARAMS:
 	default:
-		common->p_size.sr.param_size =
-			(u16) param_size;
+		common->p_size.sr.param_size = (u16) param_size;
 		common->p_size.sr.reserved = 0;
 		break;
 	}

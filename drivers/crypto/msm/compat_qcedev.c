@@ -438,8 +438,7 @@ static unsigned int convert_cmd(unsigned int cmd)
 
 }
 
-long compat_qcedev_ioctl(struct file *file,
-		unsigned int cmd, unsigned long arg)
+long compat_qcedev_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	long ret;
 

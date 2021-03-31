@@ -438,7 +438,7 @@ static int _ce_setup_hash(struct qce_device *pce_dev,
 	for (i = 0; i < 2; i++, pce++)
 		pce->data = sreq->auth_data[i];
 
-	/* Set/reset  last bit in CFG register  */
+	/* Set /reset last bit in CFG register  */
 	pce = cmdlistinfo->auth_seg_cfg;
 	auth_cfg = pce->data & ~(1 << CRYPTO_LAST |
 				1 << CRYPTO_FIRST |
@@ -4680,7 +4680,7 @@ again:
 			pce_dev->intr_cadence = 0;
 			atomic_set(&pce_dev->bunch_cmd_seq, 0);
 			atomic_set(&pce_dev->last_intr_seq, 0);
-			pce_dev->cadence_flag = ~pce_dev->cadence_flag;
+			pce_dev->cadence_flag = !pce_dev->cadence_flag;
 		}
 	}
 
